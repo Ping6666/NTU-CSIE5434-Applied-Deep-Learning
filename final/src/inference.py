@@ -106,7 +106,7 @@ def main():
     print('***Model***')
     model = Hahow_Model(topic_course_metrix, FEATURE_NUM, HIDDEN_NUM,
                         FEATURE_NUM, DROPOUT, DEVICE)
-    model.load_state_dict(torch.load('./save/topic_48.pt'))
+    model.load_state_dict(torch.load('./save/topic_03.pt'))
     model.to(DEVICE)
     model.eval()
 
@@ -156,8 +156,9 @@ if __name__ == "__main__":
     main()
 
 '''
-004/040 | t is topic, c is course.
-Train       | t_loss = 0.29934, c_loss = 0.01792, t_acc = 0.34448, c_acc = 0.01076
-Eval_Seen   | t_loss = 0.31592, c_loss = 0.01607, t_acc = 0.21856, c_acc = 0.04841
-Eval_UnSeen | t_loss = 0.36120, c_loss = 0.01931, t_acc = 0.24477, c_acc = 0.02890
+003/040 | t is topic, c is course.
+Train       | t_loss = 0.32040, c_loss = 0.02066, t_acc = 0.25223, c_acc = 0.01011
+Eval_Seen   | t_loss = 0.31752, c_loss = 0.01765, t_acc = 0.18241, c_acc = 0.05097
+Eval_UnSeen | t_loss =      NC, c_loss =      NC, t_acc =  untest, c_acc = 0.04911
+Test_Seen   | t_loss =      NC, c_loss =      NC, t_acc =  untest, c_acc = 0.04147
 '''

@@ -22,8 +22,8 @@ class Hahow_Model(nn.Module):
         ).to(device)
 
         # self.activation = nn.ReLU()
-        self.activation = nn.PReLU()  # slightly better than ReLU
-        # self.activation = nn.RReLU()
+        # self.activation = nn.PReLU()  # slightly better than ReLU
+        self.activation = nn.RReLU()
 
         self.dropout = nn.Dropout(dropout)
 
