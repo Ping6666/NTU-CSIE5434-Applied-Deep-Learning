@@ -14,7 +14,7 @@ from preprocess import (
     inference_prediction,
     DEVICE,
 )
-from model import Hahow_Model, Hahow_Loss
+from model import Hahow_Model
 from dataset import Hahow_Dataset
 from average_precision import mapk
 
@@ -25,7 +25,6 @@ SEED = 5487
 BATCH_SIZE = 64
 NUM_WORKER = 8
 
-EMBED_SIZE = 2
 FEATURE_NUM = 91
 HIDDEN_NUM = 128
 DROPOUT = 0.1
@@ -70,16 +69,16 @@ def train_per_epoch(train_loader, model, optimizer, loss_fn):
                         desc='Train',
                         leave=False):
         # data collate_fn
-        _, (_x_gender, _x_vector, _y), (_subgroup, _course) = data
-        _x_gender = _x_gender.to(DEVICE)
+        _, (_x_vector, _y), (_subgroup, _course) = data
         _x_vector = _x_vector.to(DEVICE)
         _y = _y.to(DEVICE)
 
         # train: data -> model -> loss
-        _y_pred = model(_x_gender, _x_vector)
+        _y_pred = model(_x_vector)
 
         target = torch.ones(_y_pred.size(dim=0)).to(DEVICE)
         loss = loss_fn(_y_pred, _y, target)
+        # loss = loss_fn(_y_pred, _y)
 
         # update network (zero gradients -> backward ->  adjust learning weights)
         optimizer.zero_grad()
@@ -114,17 +113,17 @@ def eval_per_epoch(eval_loader, model, loss_fn):
                         desc='Evaluation',
                         leave=False):
         # data collate_fn
-        _, (_x_gender, _x_vector, _y), (_subgroup, _course) = data
-        _x_gender = _x_gender.to(DEVICE)
+        _, (_x_vector, _y), (_subgroup, _course) = data
         _x_vector = _x_vector.to(DEVICE)
         _y = _y.to(DEVICE)
 
         # eval: data -> model -> loss
         with torch.no_grad():
-            _y_pred = model(_x_gender, _x_vector)
+            _y_pred = model(_x_vector)
 
             target = torch.ones(_y_pred.size(dim=0)).to(DEVICE)
             loss = loss_fn(_y_pred, _y, target)
+            # loss = loss_fn(_y_pred, _y)
 
             # report: loss, acc.
             eval_loss += loss.item()
@@ -154,8 +153,7 @@ def main():
     output_str = ''
 
     print('***Model***')
-    model = Hahow_Model(EMBED_SIZE, FEATURE_NUM, HIDDEN_NUM, FEATURE_NUM,
-                        DROPOUT)
+    model = Hahow_Model(FEATURE_NUM, HIDDEN_NUM, FEATURE_NUM, DROPOUT)
     model.to(DEVICE)
 
     print('***Global***')
@@ -196,10 +194,7 @@ def main():
 
     print('***loss function***')
     # loss_fn = torch.nn.MSELoss()
-
     loss_fn = torch.nn.CosineEmbeddingLoss()
-
-    # loss_fn = Hahow_Loss(TOPK, DEVICE)
 
     print('***Train & Evaluation***')
     epoch_pbar = trange(NUM_EPOCH, desc='Epoch')

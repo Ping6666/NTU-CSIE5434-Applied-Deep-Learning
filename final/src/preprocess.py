@@ -446,8 +446,8 @@ def manipulate_users(df: pd.DataFrame) -> pd.DataFrame:
     ]].progress_apply(
         lambda x: convert_multiple_text2vec(
             x,
-            [91, 1, 1],
-            [1, 20, 2],
+            [91, 1, 91],
+            [1, 25, 1],
         ),
         axis=1,
     )
@@ -475,7 +475,7 @@ def manipulate_courses(df: pd.DataFrame) -> Tuple[pd.DataFrame, LabelEncoder]:
         lambda x: convert_multiple_text2vec(
             x,
             [1, 1, 1, 1, 1, 91, 1, 1, 1, 1],
-            [1, 1, 1, 20, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 25, 1, 1, 1, 1, 1, 1],
         ),
         axis=1,
     )
@@ -494,9 +494,10 @@ def manipulate_courses(df: pd.DataFrame) -> Tuple[pd.DataFrame, LabelEncoder]:
     )
 
     if subgroup_course_metrix is None:
-        subgroup_course_metrix = torch.tensor(np.array(
-            df['courses_metrix'].tolist()),
-                                              dtype=torch.float32).to(DEVICE)
+        subgroup_course_metrix = torch.tensor(
+            np.array(df['courses_metrix'].tolist()),
+            dtype=torch.float32,
+        ).to(DEVICE)
         # print(subgroup_course_metrix.shape)  # (728, 91)
 
     return df, course_id_labelencoder
@@ -651,7 +652,8 @@ def _dataset_workhouse(name, df_preprocess) -> Tuple[List, pd.DataFrame, List]:
     subgroup = df_final['label_subgroup']
     course_id = df_final['label_course_id']
     # train part (input & label)
-    df_final = df_final[['users_gender', 'users_text2vec', 'courses_text2vec']]
+    # df_final = df_final[['users_gender', 'users_text2vec', 'courses_text2vec']]
+    df_final = df_final[['users_text2vec', 'courses_text2vec']]
     print('df_final', df_final)
     return ((user_id, user_id_labelencoder), df_final, subgroup,
             (course_id, course_id_labelencoder))

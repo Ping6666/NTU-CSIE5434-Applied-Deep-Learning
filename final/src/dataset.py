@@ -25,11 +25,9 @@ class Hahow_Dataset(Dataset):
         self.user_id = torch.tensor(user_id)
         self.user_id_labelencoder = user_id_labelencoder
 
-        self.x_gender = torch.tensor(np.array(df[:, 0].tolist()),
-                                     dtype=torch.long)
-        self.x_vector = torch.tensor(np.array(df[:, 1].tolist()),
+        self.x_vector = torch.tensor(np.array(df[:, 0].tolist()),
                                      dtype=torch.float32)
-        self.y_vector = torch.tensor(np.array(df[:, 2].tolist()),
+        self.y_vector = torch.tensor(np.array(df[:, 1].tolist()),
                                      dtype=torch.float32)
 
         self.subgroup = torch.tensor(np.array(subgroup.tolist()))
@@ -41,14 +39,12 @@ class Hahow_Dataset(Dataset):
     def __getitem__(self, id: int):
         c_user_id = self.user_id[id]
 
-        c_x_gender = self.x_gender[id]
         c_x_vector = self.x_vector[id]
         c_y_vector = self.y_vector[id]
 
         c_subgroup = self.subgroup[id]
         c_course_id = self.course_id[id]
-        return (c_user_id, (c_x_gender, c_x_vector, c_y_vector), (c_subgroup,
-                                                                  c_course_id))
+        return (c_user_id, (c_x_vector, c_y_vector), (c_subgroup, c_course_id))
 
     def __len__(self) -> int:
         return len(self.x_vector)

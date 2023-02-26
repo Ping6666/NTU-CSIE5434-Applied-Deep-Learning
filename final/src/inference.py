@@ -24,7 +24,6 @@ SEED = 5487
 BATCH_SIZE = 64
 NUM_WORKER = 8
 
-EMBED_SIZE = 2
 FEATURE_NUM = 91
 HIDDEN_NUM = 128
 DROPOUT = 0.1
@@ -57,13 +56,12 @@ def predict(test_loader, model):
                         desc='Test',
                         leave=False):
         # data collate_fn
-        _user_id, (_x_gender, _x_vector, _), (_, _) = data
-        _x_gender = _x_gender.to(DEVICE)
+        _user_id, (_x_vector, _), (_, _) = data
         _x_vector = _x_vector.to(DEVICE)
 
         # eval: data -> model -> loss
         with torch.no_grad():
-            _y_pred = model(_x_gender, _x_vector)
+            _y_pred = model(_x_vector)
 
         # report
         _user_ids.extend(_user_id)
@@ -103,9 +101,8 @@ def main():
     set_seed(SEED)
 
     print('***Model***')
-    model = Hahow_Model(EMBED_SIZE, FEATURE_NUM, HIDDEN_NUM, FEATURE_NUM,
-                        DROPOUT)
-    model.load_state_dict(torch.load('./save/topic_25.pt'))
+    model = Hahow_Model(FEATURE_NUM, HIDDEN_NUM, FEATURE_NUM, DROPOUT)
+    model.load_state_dict(torch.load('./save/topic_01.pt'))
     model.to(DEVICE)
     model.eval()
 

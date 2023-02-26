@@ -1,12 +1,12 @@
 import torch
 from torch import nn
+from torch.autograd import Variable
 
 
 class Hahow_Model(nn.Module):
 
     def __init__(
         self,
-        embedding_size: int,
         num_feature: int,
         hidden_size: int,
         num_class: int,
@@ -17,37 +17,21 @@ class Hahow_Model(nn.Module):
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
 
-        # self.embed = nn.Embedding(4, embedding_size, padding_idx=0)
-        # self.fc1 = nn.Linear(num_feature + embedding_size, hidden_size)
-
         self.fc1 = nn.Linear(num_feature, hidden_size)
-
         self.fc2 = nn.Linear(hidden_size, hidden_size)
-
-        # self.fc3 = nn.Linear(hidden_size, hidden_size)
-
+        self.fc3 = nn.Linear(hidden_size, hidden_size)
         self.fc4 = nn.Linear(hidden_size, num_class)
 
         self.bn = nn.BatchNorm1d(hidden_size)
         return
 
-    def forward(self, x_gender: torch.Tensor,
-                x_vector: torch.Tensor) -> torch.Tensor:
-
-        # TODO fix the BUG here
-        # x_gender = self.embed(x_gender)
-        # _x = torch.cat((x_gender, x_vector), 1)
-
-        # print('g', x_gender.shape)
-        # print('v', x_vector.shape)
-        # print('_x', _x.shape)
-        # input()
+    def forward(self, x_vector: torch.Tensor) -> torch.Tensor:
 
         _x = x_vector
 
         _x = self.dropout(self.relu(self.bn(self.fc1(_x))))
         _x = self.dropout(self.relu(self.bn(self.fc2(_x))))
-        # _x = self.dropout(self.relu(self.bn(self.fc3(_x))))
+        _x = self.dropout(self.relu(self.bn(self.fc3(_x))))
 
         return self.fc4(_x)
 
@@ -68,22 +52,47 @@ class Hahow_Loss(nn.Module):
         return
 
     def forward(self, y_pred, y_true):
-        if y_true is not None:
-            return torch.tensor(0).to(self.device)
 
-        if len(y_pred) > self.k:
-            y_pred = y_pred[:self.k]
+        # # fix the error
+        # '''
+        # RuntimeError: element 0 of tensors does not require grad and does not have a grad_fn
+        # '''
+        # y_pred.requires_grad = True
+        # y_true.requires_grad = True
 
-        counter = 0
-        num_hits = torch.zeros(self.k, dtype=torch.float32).to(self.device)
+        print('y_pred', y_pred.shape)
+        print('y_true', y_true.shape)
 
-        for i, p in enumerate(y_pred):
-            if p in y_true and p not in y_pred[:i]:
-                counter += 1
-                num_hits[i] = counter
+        scores = []
+        with torch.enable_grad():
+            for c_y_pred, c_y_true in zip(y_pred, y_true):
+                c_score = None
+                if c_y_true is None:
+                    c_score = torch.tensor(0).to(self.device)
+                else:
 
-        score = torch.sum(torch.dot(num_hits, self.multiplier))
-        denominator = min(len(y_true), self.k)
+                    if len(c_y_pred) > self.k:
+                        c_y_pred = c_y_pred[:self.k]
 
-        score = torch.multiply(score * (1 / denominator)).copy()
-        return torch.mean(score)
+                    counter = 0
+                    num_hits = torch.zeros(self.k, dtype=torch.float32)
+                    num_hits = num_hits.to(self.device)
+
+                    for i, p in enumerate(c_y_pred):
+                        if p in c_y_true and p not in c_y_pred[:i]:
+                            counter += 1
+                            num_hits[i] = counter
+
+                    score = torch.sum(torch.dot(num_hits, self.multiplier))
+                    denominator = min(len(c_y_true), self.k)
+
+                    c_score = torch.multiply(score, (1.0 / denominator))
+
+                print('c_score', c_score, c_score.shape)
+                # scores.append(Variable(c_score, requires_grad=True))
+                scores.append(c_score)
+
+            scores = torch.mean(torch.tensor(scores).to(self.device))
+
+        print('scores', scores.shape)
+        return scores
