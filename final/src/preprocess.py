@@ -689,7 +689,7 @@ def predict_course_search(predict: Tensor) -> List[int]:
     global subgroup_course_metrix
 
     _, idx = topk(predict, 45, largest=False)
-    predict_scatter = predict.scatter(-1, idx, value=0.01)
+    predict_scatter = predict.scatter(-1, idx, value=0.05)
 
     _predict = predict_scatter.detach().cpu().numpy()
 
