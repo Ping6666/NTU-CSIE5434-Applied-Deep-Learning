@@ -154,11 +154,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-'''
-003/040 | t is topic, c is course.
-Train       | t_loss = 0.32040, c_loss = 0.02066, t_acc = 0.25223, c_acc = 0.01011
-Eval_Seen   | t_loss = 0.31752, c_loss = 0.01765, t_acc = 0.18241, c_acc = 0.05097
-Eval_UnSeen | t_loss =      NC, c_loss =      NC, t_acc =  untest, c_acc = 0.04911
-Test_Seen   | t_loss =      NC, c_loss =      NC, t_acc =  untest, c_acc = 0.04147
-'''
