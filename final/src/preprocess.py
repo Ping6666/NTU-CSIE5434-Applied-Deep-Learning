@@ -370,6 +370,8 @@ def convert_multiple_text2vec(a: List[str], topk: List[int],
         for a_i_j in a_i:
             _text2vec.append(convert_single_text2vec(a_i_j, _topk, _multiply))
 
+    # TODO
+    # option: sum
     text2vec = np.average(np.array(_text2vec), axis=0).copy()
     return text2vec
 
@@ -429,8 +431,8 @@ def manipulate_users(df: pd.DataFrame) -> pd.DataFrame:
     ]].progress_apply(
         lambda x: convert_multiple_text2vec(
             x,
-            [91, 1, 1],
-            [0.1, 1, 1],
+            [2, 1, 2],
+            [1, 5, 1],
         ),
         axis=1,
     )
@@ -453,8 +455,8 @@ def manipulate_courses(df: pd.DataFrame) -> pd.DataFrame:
     ]].progress_apply(
         lambda x: convert_multiple_text2vec(
             x,
-            [1, 1, 1, 1, 1, 91, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1, 0.1, 1, 1, 1, 1],
+            [2, 5, 1, 1, 2, 20, 5, 5, 5, 5],
+            [5, 1, 25, 25, 5, 1, 2, 2, 2, 2],
         ),
         axis=1,
     )
@@ -494,6 +496,8 @@ def manipulate_merge_flatten(df: pd.DataFrame) -> pd.DataFrame:
         c_lv = merge_dict.get(c_user_id)
         if c_lv is None:
             # seq. is VERY important
+            # TODO
+            # option: average
             c_lv = {}
             c_lv['courses_text2vec'] = c_text2vec
             # c_lv['courses_label'] = c_labels  # deprecate
