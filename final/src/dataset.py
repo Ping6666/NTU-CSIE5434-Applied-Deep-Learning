@@ -12,6 +12,7 @@ class Hahow_Dataset(Dataset):
         self.mode = mode
 
         print('all columns', data.columns)
+        print('length', data.shape[0])
         data = data.to_numpy()
 
         data_gender = np.array(data[:, 0].tolist())

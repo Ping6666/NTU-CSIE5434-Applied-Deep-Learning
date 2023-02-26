@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from tqdm import trange, tqdm
 
-from preprocess import get_dataset, get_test
+from preprocess import get_subgroups, get_users, get_courses, get_dataset, get_test
 from dataset import Hahow_Dataset
 from model import Classifier
 
@@ -20,23 +20,21 @@ DEVICE = 'cuda:0'
 AP_K = 50
 
 
-def main():
-    print('***Model***')
-    model = Classifier(DROPOUT, 3, 91, HIDDEN_NUM, 91)
-    model.load_state_dict(torch.load('./tmp.pt'))
-    model.to(DEVICE)
-    model.eval()
+def topk_convertion(group_lists):
+    # print(group_lists[0])
+    c_group_lists = [
+        torch.add(torch.topk(group_list, AP_K).indices, 1).tolist()
+        for group_list in group_lists
+    ]
+    # print(c_group_lists[0])
+    return c_group_lists
 
-    print('***Hahow_Dataset***')
-    # TODO_: crecate DataLoader for train / dev datasets
-    test_datasets = Hahow_Dataset(get_dataset(), 'dev')
 
-    print('***DataLoader***')
-    test_loader = torch.utils.data.DataLoader(
-        test_datasets,
-        batch_size=BATCH_SIZE,
-        num_workers=NUM_WORKER,
-    )
+def predict(test_loader, model, predict_file, save_file):
+    '''
+    predict_file: 'test_seen_group.csv', 'test_unseen_group.csv'
+    save_file: './seen_user_topic.csv', './unseen_user_topic.csv'
+    '''
 
     y_preds = []
     for i, data in tqdm(enumerate(test_loader),
@@ -52,30 +50,13 @@ def main():
         # eval: data -> model -> loss
         with torch.no_grad():
             y_pred = model(_gender, _vector)
-            # y_pred = model(_input)
             y_preds.extend(y_pred)
-        #     print(len(y_pred))
-        #     print(len(y_preds))
-        # input()
 
-    subgroup_preds = []
-    for y in y_preds:
-        # subgroup (aka. topic)
-        subgroup_pred = torch.topk(y, AP_K).indices
+    subgroup_preds = topk_convertion(y_preds)
 
-        # convert list_id to subgroup_id
-        subgroup_pred = torch.add(subgroup_pred, 1)
+    df = get_test(predict_file)
 
-        subgroup_preds.append(subgroup_pred.tolist())
-
-        # print(subgroup_pred)
-        # input()
-
-    # df = get_test('test_seen_group.csv')
-    df = get_test('test_unseen_group.csv')
-
-    # with open('./seen_user_topic.csv', 'w') as f:
-    with open('./unseen_user_topic.csv', 'w') as f:
+    with open(save_file, 'w') as f:
         f.write('user_id,subgroup\n')
         for (_, c_row), subgroup_pred in zip(df.iterrows(), subgroup_preds):
             c_user_id = c_row['user_id']
@@ -84,6 +65,60 @@ def main():
             c_subgroup = ' '.join(c_subgroup)
 
             f.write(f'{c_user_id},{c_subgroup}\n')
+
+    return
+
+
+def main():
+    print('***Model***')
+    model = Classifier(DROPOUT, 3, 91, HIDDEN_NUM, 91)
+    model.load_state_dict(torch.load('./tmp.pt'))
+    model.to(DEVICE)
+    model.eval()
+
+    print('***Data***')
+    ## constant ##
+    subgroups_dict = get_subgroups('subgroups.csv')
+
+    ## dataframe ##
+
+    # get_users
+    '''
+    col: 'user_id', 'gender', 'occupation_titles', 'interests', 'recreation_names',
+         'v_interests'
+    '''
+    df_users = get_users('users.csv', subgroups_dict)
+
+    # get_courses
+    '''
+    col: 'course_id', 'course_name', 'course_price', 'teacher_id',
+         'teacher_intro', 'groups', 'sub_groups', 'topics', 'course_published_at_local',
+         'description', 'will_learn', 'required_tools', 'recommended_background', 'target_group',
+         'v_sub_groups'
+    '''
+    df_courses = get_courses('courses.csv', subgroups_dict)
+
+    print('***Hahow_Dataset***')
+    # TODO_: crecate DataLoader for train / dev datasets
+    test_seen_datasets = Hahow_Dataset(get_dataset(df_users, df_courses, 'Test_Seen'), 'Dev')
+    test_unseen_datasets = Hahow_Dataset(get_dataset(df_users, df_courses, 'Test_UnSeen'), 'Dev')
+
+    print('***DataLoader***')
+    test_seen_loader = torch.utils.data.DataLoader(
+        test_seen_datasets,
+        batch_size=BATCH_SIZE,
+        num_workers=NUM_WORKER,
+    )
+    test_unseen_loader = torch.utils.data.DataLoader(
+        test_unseen_datasets,
+        batch_size=BATCH_SIZE,
+        num_workers=NUM_WORKER,
+    )
+
+    predict(test_seen_loader, model, 'test_seen_group.csv',
+            './seen_user_topic.csv')
+    predict(test_unseen_loader, model, 'test_unseen_group.csv',
+            './unseen_user_topic.csv')
 
     print("All Epoch on Test were finished.\n")
     return
