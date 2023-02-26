@@ -1,0 +1,10 @@
+# requirements
+torch == 1.12.1+cu113
+
+tqdm
+numpy
+pandas
+
+text2vec
+
+yapf
