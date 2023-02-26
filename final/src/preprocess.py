@@ -6,11 +6,12 @@ from tqdm import tqdm
 
 tqdm.pandas()
 
-from torch import topk, Tensor
+import torch
 
 from text2vec import SentenceModel, semantic_search
 from sklearn.preprocessing import LabelEncoder
 
+DEVICE = 'cuda:1'
 MODES = ['train', 'val_seen', 'val_unseen', 'test_seen', 'test_unseen']
 BASE_DIR = './hahow/data/'
 TOPK = 91
@@ -445,8 +446,8 @@ def manipulate_users(df: pd.DataFrame) -> pd.DataFrame:
     ]].progress_apply(
         lambda x: convert_multiple_text2vec(
             x,
-            [91, 1, 91],
-            [1, 25, 1],
+            [91, 1, 1],
+            [1, 20, 2],
         ),
         axis=1,
     )
@@ -474,7 +475,7 @@ def manipulate_courses(df: pd.DataFrame) -> Tuple[pd.DataFrame, LabelEncoder]:
         lambda x: convert_multiple_text2vec(
             x,
             [1, 1, 1, 1, 1, 91, 1, 1, 1, 1],
-            [1, 1, 1, 25, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 20, 1, 1, 1, 1, 1, 1],
         ),
         axis=1,
     )
@@ -493,7 +494,9 @@ def manipulate_courses(df: pd.DataFrame) -> Tuple[pd.DataFrame, LabelEncoder]:
     )
 
     if subgroup_course_metrix is None:
-        subgroup_course_metrix = np.array(df['courses_metrix'].tolist())
+        subgroup_course_metrix = torch.tensor(np.array(
+            df['courses_metrix'].tolist()),
+                                              dtype=torch.float32).to(DEVICE)
         # print(subgroup_course_metrix.shape)  # (728, 91)
 
     return df, course_id_labelencoder
@@ -685,38 +688,37 @@ def dataset_workhouse(df_preprocess, mode: str):
 ## inference ##
 
 
-def predict_course_search(predict: Tensor) -> List[int]:
+def predict_course_search(predict: torch.Tensor) -> List[int]:
     global subgroup_course_metrix
 
-    _, idx = topk(predict, 45, largest=False)
+    _, idx = torch.topk(predict, 45, largest=False)
     predict_scatter = predict.scatter(-1, idx, value=0.05)
 
-    _predict = predict_scatter.detach().cpu().numpy()
+    # _predict = predict_scatter.detach().cpu().numpy()
 
     # print(predict.shape)  # (91,)
     # print(subgroup_course_metrix.shape)  # (728, 91)
 
-    _predict = _predict.reshape(-1, 1)
-    _rt = np.matmul(subgroup_course_metrix, _predict)
-    rt = _rt.reshape(-1).copy()
+    _predict = predict_scatter.reshape(-1, 1)
+    _rt = torch.matmul(subgroup_course_metrix, _predict.to(torch.float32))
+    rt = _rt.reshape(-1)
 
     # print(rt.shape)  # (728,)
+
     return rt
 
 
 def inference_prediction(
-        predicts: Tensor) -> Tuple[List[List[int]], List[List[int]]]:
+        predicts: torch.Tensor) -> Tuple[List[List[int]], List[List[int]]]:
     c_topic_lists, c_course_lists = [], []
     for predict in predicts:
         # topic
-        c_topic_list = (topk(predict, TOPK).indices + 1).tolist()
+        c_topic_list = (torch.topk(predict, TOPK).indices + 1).tolist()
         c_topic_lists.append(c_topic_list)
 
         # course
         course_predict = predict_course_search(predict)
-        c_course_list = [
-            idx for idx in np.argsort(-np.array(course_predict))
-        ]
+        c_course_list = (torch.topk(course_predict, TOPK).indices).tolist()
         c_course_lists.append(c_course_list)
     return c_topic_lists, c_course_lists
 

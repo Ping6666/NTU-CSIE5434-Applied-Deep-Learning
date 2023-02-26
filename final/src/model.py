@@ -50,3 +50,40 @@ class Hahow_Model(nn.Module):
         # _x = self.dropout(self.relu(self.bn(self.fc3(_x))))
 
         return self.fc4(_x)
+
+
+class Hahow_Loss(nn.Module):
+    '''
+    calculate mean average precision@K
+    '''
+
+    def __init__(self, k, device):
+        super(Hahow_Loss, self).__init__()
+        self.k = int(k)
+        self.device = device
+
+        self.multiplier = torch.ones(k) / torch.arange(1, k + 1)
+        self.multiplier = self.multiplier.to(self.device)
+
+        return
+
+    def forward(self, y_pred, y_true):
+        if y_true is not None:
+            return torch.tensor(0).to(self.device)
+
+        if len(y_pred) > self.k:
+            y_pred = y_pred[:self.k]
+
+        counter = 0
+        num_hits = torch.zeros(self.k, dtype=torch.float32).to(self.device)
+
+        for i, p in enumerate(y_pred):
+            if p in y_true and p not in y_pred[:i]:
+                counter += 1
+                num_hits[i] = counter
+
+        score = torch.sum(torch.dot(num_hits, self.multiplier))
+        denominator = min(len(y_true), self.k)
+
+        score = torch.multiply(score * (1 / denominator)).copy()
+        return torch.mean(score)

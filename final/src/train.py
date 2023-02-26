@@ -12,15 +12,15 @@ from preprocess import (
     preprocess_workhouse,
     dataset_workhouse,
     inference_prediction,
+    DEVICE,
 )
-from model import Hahow_Model
+from model import Hahow_Model, Hahow_Loss
 from dataset import Hahow_Dataset
 from average_precision import mapk
 
 ## global ##
 
 SEED = 5487
-DEVICE = 'cuda:1'
 
 BATCH_SIZE = 64
 NUM_WORKER = 8
@@ -77,7 +77,9 @@ def train_per_epoch(train_loader, model, optimizer, loss_fn):
 
         # train: data -> model -> loss
         _y_pred = model(_x_gender, _x_vector)
-        loss = loss_fn(_y_pred, _y)
+
+        target = torch.ones(_y_pred.size(dim=0)).to(DEVICE)
+        loss = loss_fn(_y_pred, _y, target)
 
         # update network (zero gradients -> backward ->  adjust learning weights)
         optimizer.zero_grad()
@@ -120,7 +122,9 @@ def eval_per_epoch(eval_loader, model, loss_fn):
         # eval: data -> model -> loss
         with torch.no_grad():
             _y_pred = model(_x_gender, _x_vector)
-            loss = loss_fn(_y_pred, _y)
+
+            target = torch.ones(_y_pred.size(dim=0)).to(DEVICE)
+            loss = loss_fn(_y_pred, _y, target)
 
             # report: loss, acc.
             eval_loss += loss.item()
@@ -147,6 +151,7 @@ def eval_per_epoch(eval_loader, model, loss_fn):
 
 def main():
     set_seed(SEED)
+    output_str = ''
 
     print('***Model***')
     model = Hahow_Model(EMBED_SIZE, FEATURE_NUM, HIDDEN_NUM, FEATURE_NUM,
@@ -186,11 +191,15 @@ def main():
         shuffle=True,
     )
 
-    print('***optimizer & loss function***')
+    print('***optimizer***')
     optimizer = torch.optim.Adam(model.parameters(), LR)
-    loss_fn = torch.nn.MSELoss()
 
-    output_str = ''
+    print('***loss function***')
+    # loss_fn = torch.nn.MSELoss()
+
+    loss_fn = torch.nn.CosineEmbeddingLoss()
+
+    # loss_fn = Hahow_Loss(TOPK, DEVICE)
 
     print('***Train & Evaluation***')
     epoch_pbar = trange(NUM_EPOCH, desc='Epoch')

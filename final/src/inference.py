@@ -12,6 +12,7 @@ from preprocess import (
     preprocess_workhouse,
     dataset_workhouse,
     inference_prediction,
+    DEVICE,
 )
 from model import Hahow_Model
 from dataset import Hahow_Dataset
@@ -19,7 +20,6 @@ from dataset import Hahow_Dataset
 ## global ##
 
 SEED = 5487
-DEVICE = 'cuda:1'
 
 BATCH_SIZE = 64
 NUM_WORKER = 8
