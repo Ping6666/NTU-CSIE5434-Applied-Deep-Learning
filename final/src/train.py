@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from tqdm import trange, tqdm
 
-from preprocess import read_csv_subgroups, get_dataframe_users, get_dataframe_courses, dataset_workhouse
+from preprocess import predataset_workhouse, dataset_workhouse
 from dataset import Hahow_Dataset
 from model import Classifier
 
@@ -117,32 +117,6 @@ def set_seed(seed):
     return
 
 
-def get_datas():
-
-    ## constant ##
-    subgroups_dict = read_csv_subgroups('subgroups.csv')
-
-    ## dataframe ##
-
-    # get_users
-    '''
-    col: 'user_id', 'gender', 'occupation_titles', 'interests', 'recreation_names',
-         'v_interests'
-    '''
-    df_users = get_dataframe_users('users.csv', subgroups_dict)
-
-    # get_courses
-    '''
-    col: 'course_id', 'course_name', 'course_price', 'teacher_id',
-         'teacher_intro', 'groups', 'sub_groups', 'topics', 'course_published_at_local',
-         'description', 'will_learn', 'required_tools', 'recommended_background', 'target_group',
-         'v_sub_groups'
-    '''
-    df_courses = get_dataframe_courses('courses.csv', subgroups_dict)
-
-    return df_users, df_courses
-
-
 def main():
     set_seed(SEED)
 
@@ -151,7 +125,7 @@ def main():
     model.to(DEVICE)
 
     print('***Data***')
-    df_users, df_courses = get_datas()
+    df_users, df_courses = predataset_workhouse()
 
     print('***Hahow_Dataset***')
     # TODO_: crecate DataLoader for train / dev datasets

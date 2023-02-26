@@ -16,6 +16,8 @@ BASE_DIR = './hahow/data/'
 group_subgroup_pair = {}
 group_list = np.array([[0] * 91] * 91, dtype=np.float64)  # dangerous move
 
+item_dict = {}
+
 
 def print_list(l):
     for j in range(91):
@@ -186,9 +188,14 @@ def convert_course_text2vec_score(
     model_embedder,
     subgroups_embeddings,
     # subgroups_list,
+    table=False,
 ):
+    if table:
+        global item_dict
+
     subgroups_scores = []
     multiplier = 0
+
     for items in x:
         items = str(items)
         if ',' in items:
@@ -202,25 +209,36 @@ def convert_course_text2vec_score(
             multiplier = 0.1
 
         for item in items:
-            item_embedding = model_embedder.encode(str(item))
-            hits = semantic_search(item_embedding,
-                                   subgroups_embeddings,
-                                   top_k=_topk_num)
-            hits = hits[0]  # Get the hits for the first query
+            item = str(item)
+            c_subgroups_score = None
 
-            corpus_ids, scores = [], []
+            c_item = None
+            if table:
+                c_item = item_dict.get(item)
 
-            c_subgroups_score = np.zeros(subgroups_num)
-            for hit in hits:
-                corpus_ids.append(hit['corpus_id'])
-                scores.append(hit['score'])
+            if not table or c_item is None:
+                item_embedding = model_embedder.encode(item)
+                hits = semantic_search(item_embedding,
+                                       subgroups_embeddings,
+                                       top_k=_topk_num)[0]
 
-            # w = np.ones(_topk_num) / np.arange(1, _topk_num + 1)
-            # scores = np.multiply(np.array(scores), w).tolist()
-            scores = (np.array(scores) * multiplier).tolist()
+                corpus_ids, scores = [], []
+                for hit in hits:
+                    corpus_ids.append(hit['corpus_id'])
+                    scores.append(hit['score'])
 
-            for c, s in zip(corpus_ids, scores):
-                c_subgroups_score[c] = s
+                # w = np.ones(_topk_num) / np.arange(1, _topk_num + 1)
+                # scores = np.multiply(np.array(scores), w).tolist()
+
+                c_subgroups_score = np.zeros(subgroups_num)
+                for c, s in zip(corpus_ids, scores):
+                    c_subgroups_score[c] = s
+
+                item_dict[item] = c_subgroups_score.copy()
+            else:
+                c_subgroups_score = c_item.copy()
+
+            c_subgroups_score = c_subgroups_score * multiplier
             subgroups_scores.append(c_subgroups_score)
 
     subgroups_scores = np.average(np.array(subgroups_scores), axis=0)
@@ -309,6 +327,35 @@ def get_dataframe_users(name, subgroups_dict) -> pd.DataFrame:
     df['v_interests'] = df[['interests']].progress_apply(
         lambda x: convert_subgroup_vector(*x, subgroups_dict), axis=1)
     # print(df['v_interests'])
+
+    # model
+    model_embedder = get_model()
+
+    ## constant ##
+    subgroups_num = len(subgroups_dict)
+    subgroups_list = list(subgroups_dict.keys())
+
+    topk_num = 91
+
+    subgroups_embeddings = model_embedder.encode(subgroups_list)
+
+    df['v_interests_text2vec'] = df[[
+        'occupation_titles',
+        'interests',
+        'recreation_names',
+    ]].progress_apply(
+        lambda x: convert_course_text2vec_score(
+            x,
+            subgroups_num,
+            topk_num,
+            model_embedder,
+            subgroups_embeddings,
+            # subgroups_list,
+            table=True,
+        ),
+        axis=1,
+    )
+    # print(df)
 
     return df
 
@@ -509,6 +556,36 @@ def get_dataframe_test(name) -> pd.DataFrame:
 ## workhouse ##
 
 
+def predataset_workhouse():
+
+    ## constant ##
+    subgroups_dict = read_csv_subgroups('subgroups.csv')
+
+    ## dataframe ##
+
+    # get_users
+    '''
+    col: 'user_id', 'gender', 'occupation_titles', 'interests', 'recreation_names',
+         'v_interests'
+    '''
+    print('******Users******')
+    df_users = get_dataframe_users('users.csv', subgroups_dict)
+    print(df_users)
+
+    # get_courses
+    '''
+    col: 'course_id', 'course_name', 'course_price', 'teacher_id',
+         'teacher_intro', 'groups', 'sub_groups', 'topics', 'course_published_at_local',
+         'description', 'will_learn', 'required_tools', 'recommended_background', 'target_group',
+         'v_sub_groups'
+    '''
+    print('******Courses******')
+    df_courses = get_dataframe_courses('courses.csv', subgroups_dict)
+    print(df_courses)
+
+    return df_users, df_courses
+
+
 def dataset_workhouse(df_users, df_courses, mode='Train'):
     if mode == 'Train':
         # ## flatten course for each user ##
@@ -519,7 +596,7 @@ def dataset_workhouse(df_users, df_courses, mode='Train'):
         #     'train.csv', df_courses)
 
         # df = pd.merge(df_courses_sub_groups, df_users, on='user_id')
-        # df = df[['gender', 'v_interests', 'v_sub_groups']]
+        # df = df[['gender', 'v_interests_text2vec', 'v_sub_groups']]
 
         # ## course text2vec for each user ##
         # '''
@@ -529,13 +606,16 @@ def dataset_workhouse(df_users, df_courses, mode='Train'):
         #     'train.csv', df_courses)
 
         # df = pd.merge(df_courses_text2vec, df_users, on='user_id')
-        # df = df[['gender', 'v_interests', 'v_text2vec']]
+        # df = df[['gender', 'v_interests_text2vec', 'v_text2vec']]
 
-        ## course get text2vec sub_groups for each user ##
+        ## course get sub_groups for each user ##
+        print('******Courses | sub_groups******')
         df_courses_sub_groups = get_dataframe_courses_sub_groups(
             'train.csv', df_courses)
         print(df_courses_sub_groups)
 
+        ## course get text2vec for each user ##
+        print('******Courses | text2vec******')
         df_courses_text2vec = get_dataframe_courses_text2vec(
             'train.csv', df_courses)
         print(df_courses_text2vec)
@@ -549,7 +629,7 @@ def dataset_workhouse(df_users, df_courses, mode='Train'):
                                            axis=1)
 
         df = pd.merge(df_merge, df_users, on='user_id')
-        df = df[['gender', 'v_interests', 'vector']]
+        df = df[['gender', 'v_interests_text2vec', 'vector']]
         print(df)
 
     elif mode == 'Eval_Seen':
@@ -559,7 +639,7 @@ def dataset_workhouse(df_users, df_courses, mode='Train'):
         df_group = get_dataframe_group('val_seen_group.csv')
 
         df = pd.merge(df_group, df_users, on='user_id')
-        df = df[['gender', 'v_interests', 'v_subgroup']]
+        df = df[['gender', 'v_interests_text2vec', 'v_subgroup']]
     elif mode == 'Eval_UnSeen':
         '''
         col: 'user_id', 'subgroup', 'l_subgroup', 'v_subgroup'
@@ -567,15 +647,15 @@ def dataset_workhouse(df_users, df_courses, mode='Train'):
         df_group = get_dataframe_group('val_unseen_group.csv')
 
         df = pd.merge(df_group, df_users, on='user_id')
-        df = df[['gender', 'v_interests', 'v_subgroup']]
+        df = df[['gender', 'v_interests_text2vec', 'v_subgroup']]
     elif mode == 'Test_Seen':
         df_test = get_dataframe_test('test_seen.csv')
         df = pd.merge(df_test, df_users, on='user_id')
-        df = df[['gender', 'v_interests']]
+        df = df[['gender', 'v_interests_text2vec']]
     elif mode == 'Test_UnSeen':
         df_test = get_dataframe_test('test_unseen.csv')
         df = pd.merge(df_test, df_users, on='user_id')
-        df = df[['gender', 'v_interests']]
+        df = df[['gender', 'v_interests_text2vec']]
     else:
         raise KeyError
 
