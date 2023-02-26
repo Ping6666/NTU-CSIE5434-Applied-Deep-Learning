@@ -1,18 +1,25 @@
 import torch
 from torch import nn
-from torch.autograd import Variable
 
 
 class Hahow_Model(nn.Module):
 
     def __init__(
         self,
+        topic_course: torch.Tensor,
         num_feature: int,
         hidden_size: int,
         num_class: int,
         dropout: float,
+        device: str,
     ) -> None:
         super(Hahow_Model, self).__init__()
+
+        # self.device = device
+        self.topic_course = torch.tensor(
+            topic_course,
+            dtype=torch.float32,
+        ).to(device)
 
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
@@ -25,6 +32,32 @@ class Hahow_Model(nn.Module):
         self.bn = nn.BatchNorm1d(hidden_size)
         return
 
+    def predict_course_search(self, predict: torch.Tensor,
+                              topic_course: torch.Tensor) -> torch.Tensor:
+        '''
+            Args:
+                predict: current predict metrix
+                topic_course: topic course related metrix
+        '''
+
+        # loop the batch_size
+        rt_tensor = None
+        for p in predict:
+            with torch.enable_grad():
+                _, idx = torch.topk(p, 45, largest=False)
+                p = p.scatter(-1, idx, value=0.05).reshape(-1, 1)
+
+                # (728, 91), (91,) => (728,)
+                rt = torch.matmul(topic_course,
+                                  p.to(torch.float32)).reshape(1, -1)
+
+                if rt_tensor is None:
+                    rt_tensor = rt
+                else:
+                    rt_tensor = torch.cat((rt_tensor, rt), 0)
+
+        return rt_tensor
+
     def forward(self, x_vector: torch.Tensor) -> torch.Tensor:
 
         _x = x_vector
@@ -32,8 +65,9 @@ class Hahow_Model(nn.Module):
         _x = self.dropout(self.relu(self.bn(self.fc1(_x))))
         _x = self.dropout(self.relu(self.bn(self.fc2(_x))))
         _x = self.dropout(self.relu(self.bn(self.fc3(_x))))
+        _x = self.fc4(_x)
 
-        return self.fc4(_x)
+        return _x, self.predict_course_search(_x, self.topic_course)
 
 
 class Hahow_Loss(nn.Module):
@@ -53,15 +87,15 @@ class Hahow_Loss(nn.Module):
 
     def forward(self, y_pred, y_true):
 
-        # # fix the error
+        # # try to fix the error
         # '''
         # RuntimeError: element 0 of tensors does not require grad and does not have a grad_fn
         # '''
         # y_pred.requires_grad = True
         # y_true.requires_grad = True
 
-        print('y_pred', y_pred.shape)
-        print('y_true', y_true.shape)
+        # print('y_pred', y_pred.shape)
+        # print('y_true', y_true.shape)
 
         scores = []
         with torch.enable_grad():
@@ -88,11 +122,11 @@ class Hahow_Loss(nn.Module):
 
                     c_score = torch.multiply(score, (1.0 / denominator))
 
-                print('c_score', c_score, c_score.shape)
+                # print('c_score', c_score, c_score.shape)
                 # scores.append(Variable(c_score, requires_grad=True))
                 scores.append(c_score)
 
             scores = torch.mean(torch.tensor(scores).to(self.device))
 
-        print('scores', scores.shape)
+        # print('scores', scores.shape)
         return scores

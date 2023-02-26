@@ -12,7 +12,6 @@ from preprocess import (
     preprocess_workhouse,
     dataset_workhouse,
     inference_prediction,
-    DEVICE,
 )
 from model import Hahow_Model
 from dataset import Hahow_Dataset
@@ -20,6 +19,7 @@ from dataset import Hahow_Dataset
 ## global ##
 
 SEED = 5487
+DEVICE = 'cuda:1'
 
 BATCH_SIZE = 64
 NUM_WORKER = 8
@@ -100,17 +100,18 @@ def save_prediction(prediction, les, save_file_topic, save_file_course):
 def main():
     set_seed(SEED)
 
-    print('***Model***')
-    model = Hahow_Model(FEATURE_NUM, HIDDEN_NUM, FEATURE_NUM, DROPOUT)
-    model.load_state_dict(torch.load('./save/topic_01.pt'))
-    model.to(DEVICE)
-    model.eval()
-
     print('***Global***')
     global_init_workhouse()
 
     print('***Data***')
-    df_preprocess = preprocess_workhouse()
+    df_preprocess, topic_course_metrix = preprocess_workhouse()
+
+    print('***Model***')
+    model = Hahow_Model(topic_course_metrix, FEATURE_NUM, HIDDEN_NUM,
+                        FEATURE_NUM, DROPOUT, DEVICE)
+    model.load_state_dict(torch.load('./save/topic_01.pt'))
+    model.to(DEVICE)
+    model.eval()
 
     print('***Hahow_Dataset***')
     test_seen_datasets = Hahow_Dataset(

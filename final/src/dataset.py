@@ -14,7 +14,7 @@ class Hahow_Dataset(Dataset):
         # self.mode = mode
 
         # unpack dataset
-        ((user_id, user_id_labelencoder), df, subgroup,
+        ((user_id, user_id_labelencoder), df, topic,
          (course_id, course_id_labelencoder)) = data
 
         # preprocess
@@ -27,10 +27,12 @@ class Hahow_Dataset(Dataset):
 
         self.x_vector = torch.tensor(np.array(df[:, 0].tolist()),
                                      dtype=torch.float32)
-        self.y_vector = torch.tensor(np.array(df[:, 1].tolist()),
-                                     dtype=torch.float32)
+        self.y_topic_vector = torch.tensor(np.array(df[:, 1].tolist()),
+                                           dtype=torch.float32)
+        self.y_course_vector = torch.tensor(np.array(df[:, 2].tolist()),
+                                            dtype=torch.float32)
 
-        self.subgroup = torch.tensor(np.array(subgroup.tolist()))
+        self.topic = torch.tensor(np.array(topic.tolist()))
 
         self.course_id = torch.tensor(np.array(course_id.tolist()))
         self.course_id_labelencoder = course_id_labelencoder
@@ -40,14 +42,17 @@ class Hahow_Dataset(Dataset):
         c_user_id = self.user_id[id]
 
         c_x_vector = self.x_vector[id]
-        c_y_vector = self.y_vector[id]
+        c_y_topic_vector = self.y_topic_vector[id]
+        c_y_course_vector = self.y_course_vector[id]
 
-        c_subgroup = self.subgroup[id]
+        c_topic = self.topic[id]
         c_course_id = self.course_id[id]
-        return (c_user_id, (c_x_vector, c_y_vector), (c_subgroup, c_course_id))
+
+        return (c_user_id, c_x_vector, (c_y_topic_vector, c_y_course_vector),
+                (c_topic, c_course_id))
 
     def __len__(self) -> int:
-        return len(self.x_vector)
+        return len(self.user_id)
 
     def get_user_id_labelencoder(self):
         return self.user_id_labelencoder

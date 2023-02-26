@@ -12,7 +12,6 @@ from preprocess import (
     preprocess_workhouse,
     dataset_workhouse,
     inference_prediction,
-    DEVICE,
 )
 from model import Hahow_Model
 from dataset import Hahow_Dataset
@@ -21,6 +20,7 @@ from average_precision import mapk
 ## global ##
 
 SEED = 5487
+DEVICE = 'cuda:1'
 
 BATCH_SIZE = 64
 NUM_WORKER = 8
@@ -61,88 +61,73 @@ def convert_ground_truths(gts):
 ## per_epoch ##
 
 
-def train_per_epoch(train_loader, model, optimizer, loss_fn):
-    train_loss = 0
-    _y_topic_preds, _y_course_preds, _subgroups, _courses = [], [], [], []
-    for _, data in tqdm(enumerate(train_loader),
-                        total=len(train_loader),
-                        desc='Train',
-                        leave=False):
-        # data collate_fn
-        _, (_x_vector, _y), (_subgroup, _course) = data
+def per_epoch(mode: str,
+              desc: str,
+              loader: DataLoader,
+              model: Hahow_Model,
+              loss_fn: torch.nn.CosineEmbeddingLoss,
+              optimizer: torch.optim.Optimizer = None):
+    '''
+    do things per epoch
+    '''
+
+    # variable
+    total_topic_loss, total_course_loss = 0, 0
+    _y_topic_preds, _y_course_preds, _gt_topics, _gt_courses = [], [], [], []
+
+    # mode
+    mode_fn = None
+    if mode == 'train':
+        mode_fn = torch.enable_grad
+    elif mode == 'val':
+        mode_fn = torch.no_grad
+
+    # for all batch
+    for _, data in tqdm(enumerate(loader), total=len(loader), desc=desc):
+        # data collate_fn (user_id, x, y, ground_truth)
+        _, _x_vector, (_y_topic, _y_course), (_gt_topic, _gt_course) = data
         _x_vector = _x_vector.to(DEVICE)
-        _y = _y.to(DEVICE)
+        _y_topic = _y_topic.to(DEVICE)
+        _y_course = _y_course.to(DEVICE)
 
-        # train: data -> model -> loss
-        _y_pred = model(_x_vector)
+        with mode_fn():
+            # train: data -> model -> loss
+            _y_t_pred, _y_c_pred = model(_x_vector)
 
-        target = torch.ones(_y_pred.size(dim=0)).to(DEVICE)
-        loss = loss_fn(_y_pred, _y, target)
-        # loss = loss_fn(_y_pred, _y)
+            # topic loss
+            target = torch.ones(_y_t_pred.size(dim=0)).to(DEVICE)
+            topic_loss: torch.Tensor = loss_fn(_y_t_pred, _y_topic, target)
 
-        # update network (zero gradients -> backward ->  adjust learning weights)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+            # course loss
+            target = torch.ones(_y_c_pred.size(dim=0)).to(DEVICE)
+            course_loss: torch.Tensor = loss_fn(_y_c_pred, _y_course, target)
 
-        # report: loss, acc.
-        train_loss += loss.item()
+            if mode == 'train':
+                # update network (zero gradients -> backward ->  adjust learning weights)
+                optimizer.zero_grad()
+                # topic_loss.backward(retain_graph=True)
+                course_loss.backward()
+                optimizer.step()
 
-        # accuracy
-        c_y_topic_pred, c_y_course_pred = inference_prediction(_y_pred)
-        c_subgroup = convert_ground_truths(_subgroup)
-        c_course = convert_ground_truths(_course)
-
-        _y_topic_preds.extend(c_y_topic_pred)
-        _y_course_preds.extend(c_y_course_pred)
-        _subgroups.extend(c_subgroup)
-        _courses.extend(c_course)
-
-    # report: loss, acc.
-    train_loss /= len(train_loader)
-    train_subgroup_acc = mapk(_subgroups, _y_topic_preds, TOPK)
-    train_course_acc = mapk(_courses, _y_course_preds, TOPK)
-    return train_loss, train_subgroup_acc, train_course_acc
-
-
-def eval_per_epoch(eval_loader, model, loss_fn):
-    eval_loss = 0
-    _y_topic_preds, _y_course_preds, _subgroups, _courses = [], [], [], []
-    for _, data in tqdm(enumerate(eval_loader),
-                        total=len(eval_loader),
-                        desc='Evaluation',
-                        leave=False):
-        # data collate_fn
-        _, (_x_vector, _y), (_subgroup, _course) = data
-        _x_vector = _x_vector.to(DEVICE)
-        _y = _y.to(DEVICE)
-
-        # eval: data -> model -> loss
-        with torch.no_grad():
-            _y_pred = model(_x_vector)
-
-            target = torch.ones(_y_pred.size(dim=0)).to(DEVICE)
-            loss = loss_fn(_y_pred, _y, target)
-            # loss = loss_fn(_y_pred, _y)
+                # Tip: when call backward() multiple times, need to use `retain_graph=True` but not for the last time.
+                # `retain_graph=True` will keep the buffer, and `retain_graph=False` will free the buffer.
 
             # report: loss, acc.
-            eval_loss += loss.item()
+            total_topic_loss += topic_loss.item()
+            total_course_loss += course_loss.item()
 
         # accuracy
-        c_y_topic_pred, c_y_course_pred = inference_prediction(_y_pred)
-        c_subgroup = convert_ground_truths(_subgroup)
-        c_course = convert_ground_truths(_course)
-
-        _y_topic_preds.extend(c_y_topic_pred)
-        _y_course_preds.extend(c_y_course_pred)
-        _subgroups.extend(c_subgroup)
-        _courses.extend(c_course)
+        _y_topic_preds.extend(inference_prediction('topic', _y_t_pred))
+        _y_course_preds.extend(inference_prediction('course', _y_c_pred))
+        _gt_topics.extend(convert_ground_truths(_gt_topic))
+        _gt_courses.extend(convert_ground_truths(_gt_course))
 
     # report: loss, acc.
-    eval_loss /= len(eval_loader)
-    eval_subgroup_acc = mapk(_subgroups, _y_topic_preds, TOPK)
-    eval_course_acc = mapk(_courses, _y_course_preds, TOPK)
-    return eval_loss, eval_subgroup_acc, eval_course_acc
+    total_topic_loss /= len(loader)
+    total_course_loss /= len(loader)
+    train_subgroup_acc = mapk(_gt_topics, _y_topic_preds, TOPK)
+    train_course_acc = mapk(_gt_courses, _y_course_preds, TOPK)
+    return total_topic_loss, total_course_loss, train_subgroup_acc, train_course_acc
 
 
 ## main ##
@@ -152,15 +137,11 @@ def main():
     set_seed(SEED)
     output_str = ''
 
-    print('***Model***')
-    model = Hahow_Model(FEATURE_NUM, HIDDEN_NUM, FEATURE_NUM, DROPOUT)
-    model.to(DEVICE)
-
     print('***Global***')
     global_init_workhouse()
 
     print('***Data***')
-    df_preprocess = preprocess_workhouse()
+    df_preprocess, topic_course_metrix = preprocess_workhouse()
 
     print('***Hahow_Dataset***')
     train_datasets = Hahow_Dataset(dataset_workhouse(df_preprocess, MODES[0]))
@@ -168,6 +149,11 @@ def main():
         dataset_workhouse(df_preprocess, MODES[1]))
     eval_unseen_datasets = Hahow_Dataset(
         dataset_workhouse(df_preprocess, MODES[2]))
+
+    print('***Model***')
+    model = Hahow_Model(topic_course_metrix, FEATURE_NUM, HIDDEN_NUM,
+                        FEATURE_NUM, DROPOUT, DEVICE)
+    model.to(DEVICE)
 
     print('***DataLoader***')
     train_loader = DataLoader(
@@ -201,34 +187,28 @@ def main():
     for epoch in epoch_pbar:
         # Training loop
         model.train()
-        train_loss, train_subgroup_acc, train_course_acc = train_per_epoch(
-            train_loader,
-            model,
-            optimizer,
-            loss_fn,
-        )
+        train = per_epoch('train', 'Train', train_loader, model, loss_fn,
+                          optimizer)
 
         # Evaluation loop
         model.eval()
-        eval_seen_loss, eval_seen_subgroup_acc, eval_seen_course_acc = eval_per_epoch(
-            eval_seen_loader,
-            model,
-            loss_fn,
-        )
-        eval_unseen_loss, eval_unseen_subgroup_acc, eval_unseen_course_acc = eval_per_epoch(
-            eval_unseen_loader,
-            model,
-            loss_fn,
-        )
+        eval_seen = per_epoch('val', 'Eval_Seen', eval_seen_loader, model,
+                              loss_fn)
+        eval_unseen = per_epoch('val', 'Eval_UnSeen', eval_unseen_loader,
+                                model, loss_fn)
 
         # output string
-        epoch_str = f'\n{(epoch + 1):03d}/{NUM_EPOCH:03d}'
-        train_str = f'\nTrain       | loss = {train_loss:.5f}, subgroup_acc = {train_subgroup_acc:.5f}, course_acc = {train_course_acc:.5f}'
-        eval_seen_str = f'\nEval_Seen   | loss = {eval_seen_loss:.5f}, subgroup_acc = {eval_seen_subgroup_acc:.5f}, course_acc = {eval_seen_course_acc:.5f}'
-        eval_unseen_str = f'\nEval_UnSeen | loss = {eval_unseen_loss:.5f}, subgroup_acc = {eval_unseen_subgroup_acc:.5f}, course_acc = {eval_unseen_course_acc:.5f}'
-        c_str = epoch_str + train_str + eval_seen_str + eval_unseen_str
-        output_str += c_str
+        c_str = (
+            f'\n{(epoch + 1):03d}/{NUM_EPOCH:03d} | t is topic, c is course.' +
+            f'\nTrain       | t_loss = {train[0]:.5f}, c_loss = {train[1]:.5f}, '
+            + f't_acc = {train[2]:.5f}, c_acc = {train[3]:.5f}' +
+            f'\nEval_Seen   | t_loss = {eval_seen[0]:.5f}, c_loss = {eval_seen[1]:.5f}, '
+            + f't_acc = {eval_seen[2]:.5f}, c_acc = {eval_seen[3]:.5f}' +
+            f'\nEval_UnSeen | t_loss = {eval_unseen[0]:.5f}, c_loss = {eval_unseen[1]:.5f}, '
+            + f't_acc = {eval_unseen[2]:.5f}, c_acc = {eval_unseen[3]:.5f}')
         print(c_str)
+
+        output_str += c_str
 
         # Inference on test set
         torch.save(model.state_dict(), f'./save/topic_{(epoch + 1):02d}.pt')
@@ -241,3 +221,57 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+#
+'''
+
+001/050 | t is topic, c is course.
+Train       | t_loss = 1.14024, c_loss = 0.92493, t_acc = 0.08575, c_acc = 0.05956
+Eval_Seen   | t_loss = 1.17510, c_loss = 0.94705, t_acc = 0.07613, c_acc = 0.01337
+Eval_UnSeen | t_loss = 1.15300, c_loss = 0.94955, t_acc = 0.06396, c_acc = 0.02001
+002/050 | t is topic, c is course.
+Train       | t_loss = 1.12598, c_loss = 0.92027, t_acc = 0.08869, c_acc = 0.05495
+Eval_Seen   | t_loss = 1.15997, c_loss = 0.94677, t_acc = 0.08303, c_acc = 0.01562
+Eval_UnSeen | t_loss = 1.14144, c_loss = 0.94962, t_acc = 0.07027, c_acc = 0.02303
+003/050 | t is topic, c is course.
+Train       | t_loss = 1.12358, c_loss = 0.91921, t_acc = 0.08850, c_acc = 0.05428
+Eval_Seen   | t_loss = 1.15827, c_loss = 0.94600, t_acc = 0.07837, c_acc = 0.01384
+Eval_UnSeen | t_loss = 1.14194, c_loss = 0.94833, t_acc = 0.06555, c_acc = 0.01735
+004/050 | t is topic, c is course.
+Train       | t_loss = 1.12381, c_loss = 0.91866, t_acc = 0.08918, c_acc = 0.05441
+Eval_Seen   | t_loss = 1.15246, c_loss = 0.94662, t_acc = 0.08274, c_acc = 0.01466
+Eval_UnSeen | t_loss = 1.13487, c_loss = 0.94928, t_acc = 0.06792, c_acc = 0.01966
+005/050 | t is topic, c is course.
+Train       | t_loss = 1.12639, c_loss = 0.91791, t_acc = 0.08957, c_acc = 0.05560
+Eval_Seen   | t_loss = 1.14971, c_loss = 0.94606, t_acc = 0.07797, c_acc = 0.01523
+Eval_UnSeen | t_loss = 1.13216, c_loss = 0.94805, t_acc = 0.06561, c_acc = 0.01955
+
+...
+
+045/050 | t is topic, c is course.                                                             [1/1820]
+Train       | t_loss = 1.14268, c_loss = 0.91043, t_acc = 0.08970, c_acc = 0.06968
+Eval_Seen   | t_loss = 1.16794, c_loss = 0.94780, t_acc = 0.07905, c_acc = 0.01620
+Eval_UnSeen | t_loss = 1.14641, c_loss = 0.94836, t_acc = 0.06957, c_acc = 0.02122
+046/050 | t is topic, c is course.
+Train       | t_loss = 1.14243, c_loss = 0.91046, t_acc = 0.09060, c_acc = 0.06920
+Eval_Seen   | t_loss = 1.16973, c_loss = 0.94834, t_acc = 0.08005, c_acc = 0.01521
+Eval_UnSeen | t_loss = 1.14866, c_loss = 0.94831, t_acc = 0.07107, c_acc = 0.02384
+047/050 | t is topic, c is course.
+Train       | t_loss = 1.14278, c_loss = 0.91025, t_acc = 0.09055, c_acc = 0.06976
+Eval_Seen   | t_loss = 1.16677, c_loss = 0.94842, t_acc = 0.08017, c_acc = 0.01709
+Eval_UnSeen | t_loss = 1.14718, c_loss = 0.94865, t_acc = 0.07114, c_acc = 0.02247
+048/050 | t is topic, c is course.
+Train       | t_loss = 1.14276, c_loss = 0.91025, t_acc = 0.09065, c_acc = 0.06964
+Eval_Seen   | t_loss = 1.16362, c_loss = 0.94773, t_acc = 0.08180, c_acc = 0.01998
+Eval_UnSeen | t_loss = 1.14365, c_loss = 0.94813, t_acc = 0.07239, c_acc = 0.02710
+049/050 | t is topic, c is course.
+Train       | t_loss = 1.14301, c_loss = 0.91001, t_acc = 0.08995, c_acc = 0.07029
+Eval_Seen   | t_loss = 1.16579, c_loss = 0.94894, t_acc = 0.08458, c_acc = 0.01822
+Eval_UnSeen | t_loss = 1.14567, c_loss = 0.94929, t_acc = 0.07305, c_acc = 0.02486
+050/050 | t is topic, c is course.
+Train       | t_loss = 1.14285, c_loss = 0.91015, t_acc = 0.09064, c_acc = 0.07020
+Eval_Seen   | t_loss = 1.16772, c_loss = 0.94873, t_acc = 0.08103, c_acc = 0.01684
+Eval_UnSeen | t_loss = 1.14744, c_loss = 0.94911, t_acc = 0.07003, c_acc = 0.02251
+All Epoch on Train and Eval were finished.
+
+'''

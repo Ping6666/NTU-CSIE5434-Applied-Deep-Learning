@@ -11,7 +11,6 @@ import torch
 from text2vec import SentenceModel, semantic_search
 from sklearn.preprocessing import LabelEncoder
 
-DEVICE = 'cuda:1'
 MODES = ['train', 'val_seen', 'val_unseen', 'test_seen', 'test_unseen']
 BASE_DIR = './hahow/data/'
 TOPK = 91
@@ -22,8 +21,6 @@ subgroup_id_pairs: Dict[str, int] = None
 sentence_model: SentenceModel = None
 subgroups_embeddings = None
 vector_table: Dict[str, np.array] = {}
-
-subgroup_course_metrix = None
 
 ## read_csv ##
 
@@ -399,27 +396,34 @@ def convert_multiple_text2vec(a: List[str], topk: List[int],
     return text2vec
 
 
-def convert_union_subgroups_id(a: str) -> set:
-    global subgroup_id_pairs
-
-    # deal with sigle & multi item scenario
-    if ',' in a:
-        a = a.split(',')
-    else:
-        a = [a]
-
-    # for all subgroups
-    rt = set()
-    for subgroup in a:
-        # deal with empty space scenario
-        subgroup = subgroup.strip()
-        if subgroup == '':
-            continue
-
-        subgroup_id = subgroup_id_pairs.get(subgroup)
-        rt.add(subgroup_id)
+def convert_to_vector(a: str, labelencoder: LabelEncoder) -> np.array:
+    # course_num = from 0 ~ 728
+    course_num = int(labelencoder.transform(np.array([a]))[0])
+    rt = np.zeros(728, dtype=np.float32)
+    rt[course_num] = 1
     return rt
 
+
+'''
+def convert_topic_to_course(predict: np.array) -> List[int]:
+    """
+    should effect same as Hahow_Model.predict_course_search in model
+    """
+
+    topk = 45
+    # argpartition sort in decreasing order (here take k smallest elements)
+    idx = np.argpartition(predict, topk)[:topk]
+    np.put_along_axis(predict, idx, value=0.05)  # inplace op.
+
+    subgroup_course_metrix = np.array() # (728, 91)
+
+    _predict = predict.reshape(-1, 1)
+    _rt = np.matmul(subgroup_course_metrix, _predict)
+    rt = _rt.reshape(-1).copy()
+
+    # print(rt.shape)  # (728,)
+    return rt
+'''
 
 ## manipulate ##
 
@@ -462,7 +466,6 @@ def manipulate_courses(df: pd.DataFrame) -> Tuple[pd.DataFrame, LabelEncoder]:
         Returns:
             pd.DataFrame: columns with post data, `courses_text2vec`.
     '''
-    global subgroup_course_metrix
 
     all_course_id = np.array(df['course_id'].tolist())
     course_id_labelencoder = get_labelencoder_do_fit(all_course_id)
@@ -493,14 +496,12 @@ def manipulate_courses(df: pd.DataFrame) -> Tuple[pd.DataFrame, LabelEncoder]:
         axis=1,
     )
 
-    if subgroup_course_metrix is None:
-        subgroup_course_metrix = torch.tensor(
-            np.array(df['courses_metrix'].tolist()),
-            dtype=torch.float32,
-        ).to(DEVICE)
-        # print(subgroup_course_metrix.shape)  # (728, 91)
+    topic_course_metrix = np.array(df['courses_metrix'].tolist())
 
-    return df, course_id_labelencoder
+    df['courses_vector'] = df['course_id'].progress_apply(
+        lambda x: convert_to_vector(x, course_id_labelencoder))
+
+    return df, course_id_labelencoder, topic_course_metrix
 
 
 def manipulate_merge_flatten(df: pd.DataFrame) -> pd.DataFrame:
@@ -515,31 +516,34 @@ def manipulate_merge_flatten(df: pd.DataFrame) -> pd.DataFrame:
                     - teacher_intro, groups, sub_groups, topics, 
                     - course_published_at_local, description, will_learn, 
                     - required_tools, recommended_background, target_group
-                    - courses_text2vec
+                    - courses_text2vec, courses_metrix
 
         Returns:
-            pd.DataFrame: columns with post data, `user_id`, `courses_text2vec`.
+            pd.DataFrame: columns with post data, `user_id`, `courses_text2vec`, 
+            `courses_vector`.
     '''
 
     merge_dict = {}
     for _, c_row in tqdm(df.iterrows(), total=df.shape[0]):
         c_user_id = c_row['user_id']
         c_text2vec = c_row['courses_text2vec'].copy()
+        c_vector = c_row['courses_vector'].copy()
 
         c_lv = merge_dict.get(c_user_id)
         if c_lv is None:
             # seq. is VERY important
-            # TODO
-            # option: average
+            # TODO option: average
             c_lv = {}
             c_lv['courses_text2vec'] = c_text2vec
+            c_lv['courses_vector'] = c_vector
         else:
             c_lv['courses_text2vec'] += c_text2vec
+            c_lv['courses_vector'] += c_vector
 
         merge_dict[c_user_id] = c_lv
 
     df_merge = pd.DataFrame.from_dict(merge_dict, orient="index").reset_index()
-    df_merge.columns = ['user_id', 'courses_text2vec']
+    df_merge.columns = ['user_id', 'courses_text2vec', 'courses_vector']
     # print(df_merge)
     return df_merge
 
@@ -597,10 +601,12 @@ def preprocess_workhouse() -> Tuple[pd.DataFrame, pd.DataFrame]:
 
     print('******df_courses******')
     df_courses = get_dataframe_courses()
-    (df_courses, course_id_labelrncoder) = manipulate_courses(df_courses)
+    (df_courses, course_id_labelrncoder,
+     topic_course_metrix) = manipulate_courses(df_courses)
     print('df_courses.columns', df_courses.columns)
     print('df_courses', df_courses)
-    return df_users, (df_courses, course_id_labelrncoder)
+    return (df_users, (df_courses,
+                       course_id_labelrncoder)), topic_course_metrix
 
 
 def _dataset_workhouse(name, df_preprocess) -> Tuple[List, pd.DataFrame, List]:
@@ -639,7 +645,7 @@ def _dataset_workhouse(name, df_preprocess) -> Tuple[List, pd.DataFrame, List]:
     # drop some other features
     df_final = df_final[[
         'user_id', 'users_gender', 'users_text2vec', 'courses_text2vec',
-        'label_subgroup', 'label_course_id'
+        'courses_vector', 'label_subgroup', 'label_course_id'
     ]]
     # print('df_final', df_final)
 
@@ -651,9 +657,12 @@ def _dataset_workhouse(name, df_preprocess) -> Tuple[List, pd.DataFrame, List]:
     # ground_truth
     subgroup = df_final['label_subgroup']
     course_id = df_final['label_course_id']
+
     # train part (input & label)
-    # df_final = df_final[['users_gender', 'users_text2vec', 'courses_text2vec']]
-    df_final = df_final[['users_text2vec', 'courses_text2vec']]
+    df_final = df_final[[
+        'users_text2vec', 'courses_text2vec', 'courses_vector'
+    ]]
+
     print('df_final', df_final)
     return ((user_id, user_id_labelencoder), df_final, subgroup,
             (course_id, course_id_labelencoder))
@@ -690,39 +699,24 @@ def dataset_workhouse(df_preprocess, mode: str):
 ## inference ##
 
 
-def predict_course_search(predict: torch.Tensor) -> List[int]:
-    global subgroup_course_metrix
+def inference_prediction(mode: str, predicts: torch.Tensor) -> List[List[int]]:
+    # variable
+    rt_lists = []
+    idx_adjust = 0
 
-    _, idx = torch.topk(predict, 45, largest=False)
-    predict_scatter = predict.scatter(-1, idx, value=0.05)
+    # mode
+    if mode == 'topic':
+        idx_adjust = 1
+    elif mode == 'course':
+        idx_adjust = 0
+    else:
+        raise ValueError
 
-    # _predict = predict_scatter.detach().cpu().numpy()
-
-    # print(predict.shape)  # (91,)
-    # print(subgroup_course_metrix.shape)  # (728, 91)
-
-    _predict = predict_scatter.reshape(-1, 1)
-    _rt = torch.matmul(subgroup_course_metrix, _predict.to(torch.float32))
-    rt = _rt.reshape(-1)
-
-    # print(rt.shape)  # (728,)
-
-    return rt
-
-
-def inference_prediction(
-        predicts: torch.Tensor) -> Tuple[List[List[int]], List[List[int]]]:
-    c_topic_lists, c_course_lists = [], []
-    for predict in predicts:
-        # topic
-        c_topic_list = (torch.topk(predict, TOPK).indices + 1).tolist()
-        c_topic_lists.append(c_topic_list)
-
-        # course
-        course_predict = predict_course_search(predict)
-        c_course_list = (torch.topk(course_predict, TOPK).indices).tolist()
-        c_course_lists.append(c_course_list)
-    return c_topic_lists, c_course_lists
+    # adjust
+    for p in predicts:
+        p_topk = (torch.topk(p, TOPK).indices + idx_adjust).tolist()
+        rt_lists.append(p_topk)
+    return rt_lists
 
 
 ## main ##
@@ -764,8 +758,7 @@ def tester_1():
     return
 
 
-def main():
-
+def tester_2():
     print('***Global***')
     global_init_workhouse()
 
@@ -783,6 +776,10 @@ def main():
     print(datasets)
     datasets = dataset_workhouse(df_preprocess, MODES[4])
     print(datasets)
+    return
+
+
+def main():
     return
 
 
