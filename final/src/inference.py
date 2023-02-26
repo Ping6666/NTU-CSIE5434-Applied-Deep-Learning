@@ -69,10 +69,11 @@ def main():
         # print(subgroup_pred)
         # input()
 
-    # df = get_test('test_seen_group.csv')
-    df = get_test('test_unseen_group.csv')
+    df = get_test('test_seen_group.csv')
+    # df = get_test('test_unseen_group.csv')
 
-    with open('./unseen_user_topic.csv', 'w') as f:
+    with open('./seen_user_topic.csv', 'w') as f:
+    # with open('./unseen_user_topic.csv', 'w') as f:
         f.write('user_id,subgroup\n')
         for (_, c_row), subgroup_pred in zip(df.iterrows(), subgroup_preds):
             c_user_id = c_row['user_id']

@@ -37,7 +37,38 @@ def get_gender(x: str) -> int:
     return g
 
 
+group_subgroup_pair = {}
+group_list = [0] * 91  # dangerous move
+
+
+def update_group_list(subgroups_dict):
+    global group_subgroup_pair
+    global group_list
+
+    for i in range(len(subgroups_dict)):
+        groups = set()
+
+        for k, v in group_subgroup_pair.items():
+            if i in v:
+                groups.update(set(v))
+
+        if i in groups:
+            groups.remove(i)
+        group_list[i] = list(groups)
+    return
+
+
+def get_subgroup_id(subgroups_dict, c_subgroup):
+    c_subgroup_id = subgroups_dict.get(c_subgroup)
+    if c_subgroup_id != None:
+        return c_subgroup_id - 1
+    # raise KeyError(f"HI {c_subgroup}.")
+    return None
+
+
 def get_subgroup_vector(x: str, subgroups_dict, split=True) -> List[int]:
+    global group_subgroup_pair
+
     ## preprocess ##
     group_pairs = []
     if ',' in x:
@@ -47,7 +78,6 @@ def get_subgroup_vector(x: str, subgroups_dict, split=True) -> List[int]:
 
     ## variable ##
     rt_list = [0] * len(subgroups_dict)
-    # subgroup_set = set()
 
     for group_pair in group_pairs:
         group_pair = group_pair.strip()
@@ -56,13 +86,23 @@ def get_subgroup_vector(x: str, subgroups_dict, split=True) -> List[int]:
 
         if split:
             group, subgroup = group_pair.split('_')
+
         else:
             subgroup = group_pair
 
-        # subgroup_set.add(subgroup)
+        subgroup_id = get_subgroup_id(subgroups_dict, subgroup)
+        if subgroup_id != None:
+            if split:
+                c_subgroup = group_subgroup_pair.get(group)
+                if c_subgroup == None:
+                    group_subgroup_pair[group] = [subgroup_id]
+                    update_group_list(subgroups_dict)
+                elif subgroup_id not in c_subgroup:
+                    c_subgroup.append(subgroup_id)
+                    group_subgroup_pair[group] = c_subgroup
+                    update_group_list(subgroups_dict)
 
-        if subgroup in subgroups_dict.keys():
-            rt_list[subgroups_dict[subgroup] - 1] = 1
+            rt_list[subgroup_id] = 1
 
     return np.array(rt_list)
 
@@ -192,6 +232,7 @@ def get_train(name, df_courses):
 
 
 def get_label():
+    global group_list
 
     df1 = pd.read_csv(BASE_DIR + 'train.csv')
     dict1 = df1.set_index('user_id').to_dict('index')
@@ -219,6 +260,11 @@ def get_label():
         vec = np.zeros(91)
         for i in dict1[u]:
             vec[i] += 1
+
+            for c_id in group_list[i]:
+                vec[c_id] += 0.2
+
+        # normalize
         if np.max(vec) != 0:
             vec /= np.max(vec)
         dict1[u] = vec
@@ -231,6 +277,7 @@ def get_label():
     # print(df)
 
     return df
+
 
 def get_test(name):
     '''
@@ -251,6 +298,7 @@ def get_test(name):
 def get_dataset(mode='Train'):
     ## constant ##
     subgroups_dict = get_subgroups('subgroups.csv')
+    # print(subgroups_dict)
 
     ## dataframe ##
 
@@ -281,7 +329,7 @@ def get_dataset(mode='Train'):
     # df = df[['user_id', 'v_interests', 'v_sub_groups']]
 
     np_df = None
-    if mode=='Train':
+    if mode == 'Train':
         df_label = get_label()
 
         df = pd.merge(df_label, df_users, on='user_id')

@@ -13,7 +13,7 @@ SEED = 5487
 BATCH_SIZE = 64
 NUM_WORKER = 8
 
-NUM_EPOCH = 100
+NUM_EPOCH = 25
 LR = 0.001
 DROPOUT = 0.1
 HIDDEN_NUM = 128
@@ -31,6 +31,14 @@ def train_per_epoch(train_loader, model, optimizer, loss_fn):
         _input, _label = data
         _input = _input.to(DEVICE)
         _label = _label.to(DEVICE)
+
+        print(_label)
+
+        for l in _label:
+            for i in l:
+                print(i.item(), end=' ')
+            print()
+            input()
 
         # train: data -> model -> loss
         y_pred = model(_input)
