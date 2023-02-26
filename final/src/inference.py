@@ -25,7 +25,7 @@ BATCH_SIZE = 256
 NUM_WORKER = 8
 
 FEATURE_NUM = 91
-HIDDEN_NUM = 256
+HIDDEN_NUM = 128
 DROPOUT = 0.1
 
 TOPK = 50
@@ -156,8 +156,8 @@ if __name__ == "__main__":
     main()
 
 '''
-005/050 | t is topic, c is course.
-Train       | t_loss = 0.29471, c_loss = 0.01893, t_acc = 0.36340, c_acc = 0.01027
-Eval_Seen   | t_loss = 0.31309, c_loss = 0.01755, t_acc = 0.21205, c_acc = 0.04789
-Eval_UnSeen | t_loss = 0.36096, c_loss = 0.02098, t_acc = 0.23909, c_acc = 0.02767
+004/040 | t is topic, c is course.
+Train       | t_loss = 0.29934, c_loss = 0.01792, t_acc = 0.34448, c_acc = 0.01076
+Eval_Seen   | t_loss = 0.31592, c_loss = 0.01607, t_acc = 0.21856, c_acc = 0.04841
+Eval_UnSeen | t_loss = 0.36120, c_loss = 0.01931, t_acc = 0.24477, c_acc = 0.02890
 '''
