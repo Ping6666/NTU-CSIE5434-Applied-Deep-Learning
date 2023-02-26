@@ -1,0 +1,12 @@
+name: adl-hw3
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.8
+  - cudatoolkit=11.3
+  - cudnn=8.2.0
+  - pip
+  - pip:
+    - --find-links https://download.pytorch.org/whl/torch_stable.html
+    - --requirement requirements.txt  

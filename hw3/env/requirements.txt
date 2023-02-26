@@ -1,0 +1,24 @@
+# requirements
+torch == 1.12.1+cu113
+tensorflow == 2.10.0
+# tensorflow == 2.4.1
+
+tqdm
+numpy
+pandas
+
+# evaluate
+transformers == 4.22.2
+datasets
+accelerate
+sentencepiece
+
+nltk
+spacy
+jsonlines
+
+rouge
+ckiptagger
+gdown
+
+yapf
