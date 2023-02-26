@@ -14,12 +14,21 @@ BASE_DIR = './hahow/data/'
 ## global ##
 
 group_subgroup_pair = {}
-group_list = [0] * 91  # dangerous move
+group_list = np.array([[0] * 91] * 91, dtype=np.float64)  # dangerous move
+
+
+def print_list(l):
+    for j in range(91):
+        for k in range(91):
+            print(l[j][k], end=' ')
+        print()
+    return
 
 
 def update_group_list(subgroups_dict):
     global group_subgroup_pair
     global group_list
+    _group_list = np.array([[0] * 91] * 91, dtype=np.float64)  # dangerous move
 
     for i in range(len(subgroups_dict)):
         groups = set()
@@ -30,7 +39,14 @@ def update_group_list(subgroups_dict):
 
         if i in groups:
             groups.remove(i)
-        group_list[i] = list(groups)
+
+        for j in range(len(subgroups_dict)):
+            if j in groups:
+                _group_list[i][j] = 1
+            else:
+                _group_list[i][j] = 0
+
+    group_list = _group_list
     return
 
 
@@ -89,7 +105,7 @@ def convert_subgroup_vector_from_id(x):
         except:
             continue
 
-    return np.array(rt_list)
+    return np.array(rt_list, dtype=np.float64)
 
 
 def convert_list(x: str) -> List:
@@ -160,7 +176,7 @@ def convert_subgroup_vector(x: str, subgroups_dict, split=True) -> List[int]:
 
             rt_list[subgroup_id] = 1
 
-    return np.array(rt_list)
+    return np.array(rt_list, dtype=np.float64)
 
 
 def convert_course_text2vec_score(
@@ -171,27 +187,25 @@ def convert_course_text2vec_score(
     subgroups_embeddings,
     # subgroups_list,
 ):
-    # bad_strs = ['更多', '設計']
-    w = np.ones(topk_num) / np.arange(1, topk_num + 1)
-
     subgroups_scores = []
+    multiplier = 0
     for items in x:
         items = str(items)
         if ',' in items:
             # 'groups', 'sub_groups'
             items = items.split(',')
-            # for i in range(len(items)):
-            #     for bad_str in bad_strs:
-            #         if bad_str in items[i]:
-            #             items[i] = items[i].replace(bad_str, '')
+            _topk_num = 1
+            multiplier = 1
         else:
             items = [items]
+            _topk_num = topk_num
+            multiplier = 0.1
 
         for item in items:
             item_embedding = model_embedder.encode(str(item))
             hits = semantic_search(item_embedding,
                                    subgroups_embeddings,
-                                   top_k=topk_num)
+                                   top_k=_topk_num)
             hits = hits[0]  # Get the hits for the first query
 
             corpus_ids, scores = [], []
@@ -201,7 +215,9 @@ def convert_course_text2vec_score(
                 corpus_ids.append(hit['corpus_id'])
                 scores.append(hit['score'])
 
-            scores = np.multiply(np.array(scores), w).tolist()
+            # w = np.ones(_topk_num) / np.arange(1, _topk_num + 1)
+            # scores = np.multiply(np.array(scores), w).tolist()
+            scores = (np.array(scores) * multiplier).tolist()
 
             for c, s in zip(corpus_ids, scores):
                 c_subgroups_score[c] = s
@@ -224,21 +240,28 @@ def convert_course_text2vec_score(
     return subgroups_scores
 
 
-def convert_plus_norm(a, b):
+def array_norm(a):
+    _a = np.array(a).copy()
+    _a_max = np.max(_a)
+    if _a_max != 0:
+        _a = _a / _a_max
+    return _a
+
+
+def convert_merge_stages(a, b):
     '''
     a: 'v_sub_groups'
     b: 'v_text2vec'
     '''
-    # c = np.array([_a * _b for _a, _b in zip(a, b)])
+    epsilon = 0.1
 
-    epsilon = 0.001
     a = np.array(a) + epsilon
+    a = array_norm(a)
+
     b = np.array(b)
     c = np.multiply(a, b)
 
-    c_max = np.max(c)
-    if c_max != 0:
-        c = c / c_max
+    # c = array_norm(c)
 
     return c
 
@@ -350,11 +373,13 @@ def get_dataframe_train(name) -> pd.DataFrame:
             train_list.append(c_train)
 
     df_flatten = pd.DataFrame(train_list)
+    # print(df_flatten)
 
     return df_flatten
 
 
 def get_dataframe_courses_sub_groups(name, df_courses) -> pd.DataFrame:
+    global group_list
 
     #
     '''
@@ -366,7 +391,7 @@ def get_dataframe_courses_sub_groups(name, df_courses) -> pd.DataFrame:
     df_train = df_train[['user_id', 'v_sub_groups']].copy()
 
     train_dict = {}
-    for _, c_row in df_train.iterrows():
+    for i, c_row in df_train.iterrows():
         c_user = c_row['user_id']
         c_v_sub_groups = c_row['v_sub_groups'].copy()
         c_v = train_dict.get(c_user)
@@ -374,11 +399,20 @@ def get_dataframe_courses_sub_groups(name, df_courses) -> pd.DataFrame:
         if c_v is None:
             c_v = c_v_sub_groups
         else:
-            c_v += c_v_sub_groups
+            c_v_sub_groups_mul_mean = np.mean(
+                np.multiply(
+                    c_v_sub_groups.reshape(1, -1),
+                    np.array(group_list),
+                ),
+                axis=1,
+            ).reshape(-1)
+
+            c_v += c_v_sub_groups + 0.2 * c_v_sub_groups_mul_mean
         train_dict[c_user] = c_v
 
     _df_train = pd.DataFrame(list(train_dict.items()),
                              columns=['user_id', 'v_sub_groups'])
+    # print(_df_train)
 
     return _df_train
 
@@ -392,7 +426,7 @@ def get_dataframe_courses_text2vec(name, df_courses) -> pd.DataFrame:
     subgroups_num = len(subgroups_dict)
     subgroups_list = list(subgroups_dict.keys())
 
-    topk_num = 10
+    topk_num = 91
 
     subgroups_embeddings = model_embedder.encode(subgroups_list)
 
@@ -426,6 +460,7 @@ def get_dataframe_courses_text2vec(name, df_courses) -> pd.DataFrame:
         ),
         axis=1,
     )
+    # print(df_courses)
 
     #
     '''
@@ -450,6 +485,7 @@ def get_dataframe_courses_text2vec(name, df_courses) -> pd.DataFrame:
 
     _df_train = pd.DataFrame(list(train_dict.items()),
                              columns=['user_id', 'v_text2vec'])
+    # print(_df_train)
 
     return _df_train
 
@@ -509,7 +545,7 @@ def dataset_workhouse(df_users, df_courses, mode='Train'):
                             on='user_id')
         df_merge['vector'] = df_merge[['v_sub_groups',
                                        'v_text2vec']].progress_apply(
-                                           lambda x: convert_plus_norm(*x),
+                                           lambda x: convert_merge_stages(*x),
                                            axis=1)
 
         df = pd.merge(df_merge, df_users, on='user_id')
