@@ -49,25 +49,22 @@ def set_seed(seed):
 ## predict ##
 
 
-def predict(test_loader, model):
+def predict(loader, model):
     _user_ids, _y_topic_preds, _y_course_preds = [], [], []
-    for _, data in tqdm(enumerate(test_loader),
-                        total=len(test_loader),
-                        desc='Test',
-                        leave=False):
+    for _, data in tqdm(enumerate(loader), total=len(loader), desc='Test'):
         # data collate_fn
-        _user_id, (_x_vector, _), (_, _) = data
+        _user_id, _x_vector, (_, _), (_, _) = data
         _x_vector = _x_vector.to(DEVICE)
 
         # eval: data -> model -> loss
         with torch.no_grad():
-            _y_pred = model(_x_vector)
+            _y_t_pred, _y_c_pred = model(_x_vector)
 
         # report
         _user_ids.extend(_user_id)
-        _y_topic_pred, _y_course_pred = inference_prediction(_y_pred)
-        _y_topic_preds.extend(_y_topic_pred)
-        _y_course_preds.extend(_y_course_pred)
+        # _y_topic_pred, _y_course_pred = inference_prediction(_y_pred)
+        _y_topic_preds.extend(inference_prediction('topic', _y_t_pred))
+        _y_course_preds.extend(inference_prediction('course', _y_c_pred))
     return _user_ids, _y_topic_preds, _y_course_preds
 
 
@@ -109,7 +106,7 @@ def main():
     print('***Model***')
     model = Hahow_Model(topic_course_metrix, FEATURE_NUM, HIDDEN_NUM,
                         FEATURE_NUM, DROPOUT, DEVICE)
-    model.load_state_dict(torch.load('./save/topic_01.pt'))
+    model.load_state_dict(torch.load('./save/topic_48.pt'))
     model.to(DEVICE)
     model.eval()
 
@@ -157,3 +154,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+'''
+048/050 | t is topic, c is course.
+Train       | t_loss = 0.40763, c_loss = 0.07802, t_acc = 0.41122, c_acc = 0.01002
+Eval_Seen   | t_loss = 0.45240, c_loss = 0.07689, t_acc = 0.22796, c_acc = 0.04717
+Eval_UnSeen | t_loss = 0.49917, c_loss = 0.09249, t_acc = 0.26636, c_acc = 0.02655
+'''

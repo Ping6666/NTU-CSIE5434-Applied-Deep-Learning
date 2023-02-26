@@ -404,6 +404,13 @@ def convert_to_vector(a: str, labelencoder: LabelEncoder) -> np.array:
     return rt
 
 
+def convert_matmul(a: np.array, topic_course_metrix: np.array) -> np.array:
+    _a = a.reshape(-1, 1)
+    rt = np.matmul(topic_course_metrix, _a)
+    _rt = rt.reshape(-1).copy()
+    return _rt
+
+
 '''
 def convert_topic_to_course(predict: np.array) -> List[int]:
     """
@@ -451,7 +458,7 @@ def manipulate_users(df: pd.DataFrame) -> pd.DataFrame:
         lambda x: convert_multiple_text2vec(
             x,
             [91, 1, 91],
-            [1, 25, 1],
+            [1, 20, 1],
         ),
         axis=1,
     )
@@ -478,7 +485,7 @@ def manipulate_courses(df: pd.DataFrame) -> Tuple[pd.DataFrame, LabelEncoder]:
         lambda x: convert_multiple_text2vec(
             x,
             [1, 1, 1, 1, 1, 91, 1, 1, 1, 1],
-            [1, 1, 1, 25, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 20, 1, 1, 1, 1, 1, 1],
         ),
         axis=1,
     )
@@ -498,8 +505,11 @@ def manipulate_courses(df: pd.DataFrame) -> Tuple[pd.DataFrame, LabelEncoder]:
 
     topic_course_metrix = np.array(df['courses_metrix'].tolist())
 
-    df['courses_vector'] = df['course_id'].progress_apply(
-        lambda x: convert_to_vector(x, course_id_labelencoder))
+    # df['courses_vector'] = df['course_id'].progress_apply(
+    #     lambda x: convert_to_vector(x, course_id_labelencoder))
+
+    df['courses_vector'] = df['courses_text2vec'].progress_apply(
+        lambda x: convert_matmul(x, topic_course_metrix))
 
     return df, course_id_labelencoder, topic_course_metrix
 
@@ -728,54 +738,6 @@ def printer_unique_counter(n: np.ndarray, pre_str: str = None):
     if pre_str != None:
         print(pre_str, end=' ')
     print(dict(zip(unique, counts)))
-    return
-
-
-def tester_1():
-    df_user_course = get_dataframe_user_course('train.csv')
-    printer_unique_counter(df_user_course['num_course'].to_numpy(),
-                           pre_str='train course |')
-
-    df_user_subgroup = get_dataframe_user_subgroup('train_group.csv')
-    printer_unique_counter(df_user_subgroup['num_subgroup'].to_numpy(),
-                           pre_str='train subgroup |')
-
-    df_user_course = get_dataframe_user_course('val_seen.csv')
-    printer_unique_counter(df_user_course['num_course'].to_numpy(),
-                           pre_str='val_seen course |')
-
-    df_user_subgroup = get_dataframe_user_subgroup('val_seen_group.csv')
-    printer_unique_counter(df_user_subgroup['num_subgroup'].to_numpy(),
-                           pre_str='val_seen subgroup |')
-
-    df_user_course = get_dataframe_user_course('val_unseen.csv')
-    printer_unique_counter(df_user_course['num_course'].to_numpy(),
-                           pre_str='val_unseen course |')
-
-    df_user_subgroup = get_dataframe_user_subgroup('val_unseen_group.csv')
-    printer_unique_counter(df_user_subgroup['num_subgroup'].to_numpy(),
-                           pre_str='val_unseen subgroup |')
-    return
-
-
-def tester_2():
-    print('***Global***')
-    global_init_workhouse()
-
-    print('***Data***')
-    df_preprocess = preprocess_workhouse()
-
-    print('***Hahow_Dataset***')
-    datasets = dataset_workhouse(df_preprocess, MODES[0])
-    print(datasets)
-    datasets = dataset_workhouse(df_preprocess, MODES[1])
-    print(datasets)
-    datasets = dataset_workhouse(df_preprocess, MODES[2])
-    print(datasets)
-    datasets = dataset_workhouse(df_preprocess, MODES[3])
-    print(datasets)
-    datasets = dataset_workhouse(df_preprocess, MODES[4])
-    print(datasets)
     return
 
 

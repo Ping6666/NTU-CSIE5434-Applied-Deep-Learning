@@ -105,8 +105,12 @@ def per_epoch(mode: str,
             if mode == 'train':
                 # update network (zero gradients -> backward ->  adjust learning weights)
                 optimizer.zero_grad()
-                # topic_loss.backward(retain_graph=True)
+
+                # topic_loss.backward()
+
+                topic_loss.backward(retain_graph=True)
                 course_loss.backward()
+
                 optimizer.step()
 
                 # Tip: when call backward() multiple times, need to use `retain_graph=True` but not for the last time.
@@ -143,17 +147,17 @@ def main():
     print('***Data***')
     df_preprocess, topic_course_metrix = preprocess_workhouse()
 
+    print('***Model***')
+    model = Hahow_Model(topic_course_metrix, FEATURE_NUM, HIDDEN_NUM,
+                        FEATURE_NUM, DROPOUT, DEVICE)
+    model.to(DEVICE)
+
     print('***Hahow_Dataset***')
     train_datasets = Hahow_Dataset(dataset_workhouse(df_preprocess, MODES[0]))
     eval_seen_datasets = Hahow_Dataset(
         dataset_workhouse(df_preprocess, MODES[1]))
     eval_unseen_datasets = Hahow_Dataset(
         dataset_workhouse(df_preprocess, MODES[2]))
-
-    print('***Model***')
-    model = Hahow_Model(topic_course_metrix, FEATURE_NUM, HIDDEN_NUM,
-                        FEATURE_NUM, DROPOUT, DEVICE)
-    model.to(DEVICE)
 
     print('***DataLoader***')
     train_loader = DataLoader(
@@ -221,57 +225,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-#
-'''
-
-001/050 | t is topic, c is course.
-Train       | t_loss = 1.14024, c_loss = 0.92493, t_acc = 0.08575, c_acc = 0.05956
-Eval_Seen   | t_loss = 1.17510, c_loss = 0.94705, t_acc = 0.07613, c_acc = 0.01337
-Eval_UnSeen | t_loss = 1.15300, c_loss = 0.94955, t_acc = 0.06396, c_acc = 0.02001
-002/050 | t is topic, c is course.
-Train       | t_loss = 1.12598, c_loss = 0.92027, t_acc = 0.08869, c_acc = 0.05495
-Eval_Seen   | t_loss = 1.15997, c_loss = 0.94677, t_acc = 0.08303, c_acc = 0.01562
-Eval_UnSeen | t_loss = 1.14144, c_loss = 0.94962, t_acc = 0.07027, c_acc = 0.02303
-003/050 | t is topic, c is course.
-Train       | t_loss = 1.12358, c_loss = 0.91921, t_acc = 0.08850, c_acc = 0.05428
-Eval_Seen   | t_loss = 1.15827, c_loss = 0.94600, t_acc = 0.07837, c_acc = 0.01384
-Eval_UnSeen | t_loss = 1.14194, c_loss = 0.94833, t_acc = 0.06555, c_acc = 0.01735
-004/050 | t is topic, c is course.
-Train       | t_loss = 1.12381, c_loss = 0.91866, t_acc = 0.08918, c_acc = 0.05441
-Eval_Seen   | t_loss = 1.15246, c_loss = 0.94662, t_acc = 0.08274, c_acc = 0.01466
-Eval_UnSeen | t_loss = 1.13487, c_loss = 0.94928, t_acc = 0.06792, c_acc = 0.01966
-005/050 | t is topic, c is course.
-Train       | t_loss = 1.12639, c_loss = 0.91791, t_acc = 0.08957, c_acc = 0.05560
-Eval_Seen   | t_loss = 1.14971, c_loss = 0.94606, t_acc = 0.07797, c_acc = 0.01523
-Eval_UnSeen | t_loss = 1.13216, c_loss = 0.94805, t_acc = 0.06561, c_acc = 0.01955
-
-...
-
-045/050 | t is topic, c is course.                                                             [1/1820]
-Train       | t_loss = 1.14268, c_loss = 0.91043, t_acc = 0.08970, c_acc = 0.06968
-Eval_Seen   | t_loss = 1.16794, c_loss = 0.94780, t_acc = 0.07905, c_acc = 0.01620
-Eval_UnSeen | t_loss = 1.14641, c_loss = 0.94836, t_acc = 0.06957, c_acc = 0.02122
-046/050 | t is topic, c is course.
-Train       | t_loss = 1.14243, c_loss = 0.91046, t_acc = 0.09060, c_acc = 0.06920
-Eval_Seen   | t_loss = 1.16973, c_loss = 0.94834, t_acc = 0.08005, c_acc = 0.01521
-Eval_UnSeen | t_loss = 1.14866, c_loss = 0.94831, t_acc = 0.07107, c_acc = 0.02384
-047/050 | t is topic, c is course.
-Train       | t_loss = 1.14278, c_loss = 0.91025, t_acc = 0.09055, c_acc = 0.06976
-Eval_Seen   | t_loss = 1.16677, c_loss = 0.94842, t_acc = 0.08017, c_acc = 0.01709
-Eval_UnSeen | t_loss = 1.14718, c_loss = 0.94865, t_acc = 0.07114, c_acc = 0.02247
-048/050 | t is topic, c is course.
-Train       | t_loss = 1.14276, c_loss = 0.91025, t_acc = 0.09065, c_acc = 0.06964
-Eval_Seen   | t_loss = 1.16362, c_loss = 0.94773, t_acc = 0.08180, c_acc = 0.01998
-Eval_UnSeen | t_loss = 1.14365, c_loss = 0.94813, t_acc = 0.07239, c_acc = 0.02710
-049/050 | t is topic, c is course.
-Train       | t_loss = 1.14301, c_loss = 0.91001, t_acc = 0.08995, c_acc = 0.07029
-Eval_Seen   | t_loss = 1.16579, c_loss = 0.94894, t_acc = 0.08458, c_acc = 0.01822
-Eval_UnSeen | t_loss = 1.14567, c_loss = 0.94929, t_acc = 0.07305, c_acc = 0.02486
-050/050 | t is topic, c is course.
-Train       | t_loss = 1.14285, c_loss = 0.91015, t_acc = 0.09064, c_acc = 0.07020
-Eval_Seen   | t_loss = 1.16772, c_loss = 0.94873, t_acc = 0.08103, c_acc = 0.01684
-Eval_UnSeen | t_loss = 1.14744, c_loss = 0.94911, t_acc = 0.07003, c_acc = 0.02251
-All Epoch on Train and Eval were finished.
-
-'''
