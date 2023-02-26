@@ -34,6 +34,7 @@ class Hahow_Model(nn.Module):
     def forward(self, x_gender: torch.Tensor,
                 x_vector: torch.Tensor) -> torch.Tensor:
 
+        # TODO fix the BUG here
         # x_gender = self.embed(x_gender)
         # _x = torch.cat((x_gender, x_vector), 1)
 

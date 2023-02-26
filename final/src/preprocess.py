@@ -2,14 +2,14 @@ from typing import List, Dict, Tuple
 
 import numpy as np
 import pandas as pd
-
 from tqdm import tqdm
 
 tqdm.pandas()
 
-from torch import topk
+from torch import topk, Tensor
 
 from text2vec import SentenceModel, semantic_search
+from sklearn.preprocessing import LabelEncoder
 
 MODES = ['train', 'val_seen', 'val_unseen', 'test_seen', 'test_unseen']
 BASE_DIR = './hahow/data/'
@@ -21,6 +21,8 @@ subgroup_id_pairs: Dict[str, int] = None
 sentence_model: SentenceModel = None
 subgroups_embeddings = None
 vector_table: Dict[str, np.array] = {}
+
+subgroup_course_metrix = None
 
 ## read_csv ##
 
@@ -61,7 +63,7 @@ def get_dataframe_user_course(name: str) -> pd.DataFrame:
             `test_seen.csv`, `test_unseen.csv`.
 
         Returns:
-            pd.DataFrame: columns with raw data, `user_id`, `course_id`.
+            pd.DataFrame: columns with raw data, `user_id`, `course_id`, `num_course`.
     '''
     df = pd.DataFrame(
         pd.read_csv(
@@ -73,14 +75,22 @@ def get_dataframe_user_course(name: str) -> pd.DataFrame:
         ))
 
     def split_to_list(a: str) -> List[str]:
+        _a = []
         if ' ' in a:
-            return a.split(' ')
-        return [a]
+            _a = a.split(' ')
+        else:
+            _a = [a]
+        return _a, len(_a)
 
     df['course_id'].fillna(value='', inplace=True)
-    df['course_id'] = df[['course_id']].progress_apply(
+    # df['course_id'] = df[['course_id']].progress_apply(
+    #     lambda x: split_to_list(*x),
+    #     axis=1,
+    # )
+    df[['course_id', 'num_course']] = df[['course_id']].progress_apply(
         lambda x: split_to_list(*x),
         axis=1,
+        result_type='expand',
     )
     # print(df)
     return df
@@ -127,7 +137,7 @@ def get_dataframe_user_subgroup(name: str) -> pd.DataFrame:
             `test_seen_group.csv`, `test_unseen_group.csv`.
 
         Returns:
-            pd.DataFrame: columns with raw data, `user_id`, `subgroup`.
+            pd.DataFrame: columns with raw data, `user_id`, `subgroup`, `num_subgroup`.
     '''
     df = pd.DataFrame(
         pd.read_csv(
@@ -154,16 +164,22 @@ def get_dataframe_user_subgroup(name: str) -> pd.DataFrame:
             _a.append(int(a_i))
 
         # padding
-        n = len(_a)
-        if n != 91:
-            _a += [0] * (91 - n)
+        n, max_n, pad_num = len(_a), 91, -1
+        if n < max_n:
+            _a += [pad_num] * (max_n - n)
+        _a = _a[:max_n]
         rt = np.array(_a, dtype=np.int8)
-        return rt
+        return rt, n
 
     df['subgroup'].fillna(value='', inplace=True)
-    df['subgroup'] = df[['subgroup']].progress_apply(
+    # df['subgroup'] = df[['subgroup']].progress_apply(
+    #     lambda x: set_pad_to_list(*x),
+    #     axis=1,
+    # )
+    df[['label_subgroup', 'num_subgroup']] = df[['subgroup']].progress_apply(
         lambda x: set_pad_to_list(*x),
         axis=1,
+        result_type='expand',
     )
     # print(df)
     return df
@@ -248,7 +264,7 @@ def subgroup_idx_to_id(a: int) -> int:
     return a + 1
 
 
-def get_model() -> None:
+def init_model() -> None:
     global sentence_model
     global subgroups_embeddings
     global subgroup_id_pairs
@@ -263,6 +279,12 @@ def get_model() -> None:
     subgroups_embeddings = sentence_model.encode(list(
         subgroup_id_pairs.keys()))
     return
+
+
+def get_labelencoder_do_fit(x):
+    labelencoder = LabelEncoder()
+    labelencoder.fit(np.array(x.tolist()))
+    return labelencoder
 
 
 ## convertor ##
@@ -398,14 +420,6 @@ def convert_union_subgroups_id(a: str) -> set:
     return rt
 
 
-def convert_predict_to_int_list(predicts) -> List[int]:
-    c_group_lists = []
-    for predict in predicts:
-        c_group_list = (topk(predict, TOPK).indices + 1).tolist()
-        c_group_lists.append(c_group_list)
-    return c_group_lists
-
-
 ## manipulate ##
 
 
@@ -432,22 +446,26 @@ def manipulate_users(df: pd.DataFrame) -> pd.DataFrame:
         lambda x: convert_multiple_text2vec(
             x,
             [2, 1, 2],
-            [1, 5, 1],
+            [1, 10, 1],
         ),
         axis=1,
     )
     return df
 
 
-def manipulate_courses(df: pd.DataFrame) -> pd.DataFrame:
+def manipulate_courses(df: pd.DataFrame) -> Tuple[pd.DataFrame, LabelEncoder]:
     '''
         Args:
             df: see get_dataframe_courses.
 
         Returns:
             pd.DataFrame: columns with post data, `courses_text2vec`.
-            `courses_label` (deprecate)
     '''
+    global subgroup_course_metrix
+
+    all_course_id = np.array(df['course_id'].tolist())
+    course_id_labelencoder = get_labelencoder_do_fit(all_course_id)
+
     df['courses_text2vec'] = df[[
         'course_name', 'teacher_intro', 'groups', 'sub_groups', 'topics',
         'description', 'will_learn', 'required_tools',
@@ -456,16 +474,16 @@ def manipulate_courses(df: pd.DataFrame) -> pd.DataFrame:
         lambda x: convert_multiple_text2vec(
             x,
             [2, 5, 1, 1, 2, 20, 5, 5, 5, 5],
-            [5, 1, 25, 25, 5, 1, 2, 2, 2, 2],
+            [1, 1, 1, 100, 1, 1, 1, 1, 1, 1],
         ),
         axis=1,
     )
-    ## deprecate ##
-    # df['courses_label'] = df[['sub_groups']].progress_apply(
-    #     lambda x: convert_union_subgroups_id(*x),
-    #     axis=1,
-    # )
-    return df
+
+    if subgroup_course_metrix is None:
+        subgroup_course_metrix = np.array(df['courses_text2vec'].tolist())
+        # print(subgroup_course_metrix.shape)  # (728, 91)
+
+    return df, course_id_labelencoder
 
 
 def manipulate_merge_flatten(df: pd.DataFrame) -> pd.DataFrame:
@@ -481,17 +499,15 @@ def manipulate_merge_flatten(df: pd.DataFrame) -> pd.DataFrame:
                     - course_published_at_local, description, will_learn, 
                     - required_tools, recommended_background, target_group
                     - courses_text2vec
-                    - courses_label (deprecate)
 
         Returns:
-            pd.DataFrame: columns with post data, ``.
+            pd.DataFrame: columns with post data, `user_id`, `courses_text2vec`.
     '''
 
     merge_dict = {}
     for _, c_row in tqdm(df.iterrows(), total=df.shape[0]):
         c_user_id = c_row['user_id']
         c_text2vec = c_row['courses_text2vec'].copy()
-        # c_labels: set = c_row['courses_label']  # deprecate
 
         c_lv = merge_dict.get(c_user_id)
         if c_lv is None:
@@ -500,38 +516,51 @@ def manipulate_merge_flatten(df: pd.DataFrame) -> pd.DataFrame:
             # option: average
             c_lv = {}
             c_lv['courses_text2vec'] = c_text2vec
-            # c_lv['courses_label'] = c_labels  # deprecate
         else:
             c_lv['courses_text2vec'] += c_text2vec
-            # c_lv['courses_label'].update(c_labels)  # deprecate
 
         merge_dict[c_user_id] = c_lv
 
     df_merge = pd.DataFrame.from_dict(merge_dict, orient="index").reset_index()
     df_merge.columns = ['user_id', 'courses_text2vec']
-
-    # df_merge.columns = ['user_id', 'courses_text2vec', 'courses_label']  # deprecate
-
-    # def set_pad_to_list(a: set) -> np.array:
-    #     _a = list(a)
-    #     if len(_a) != 91:
-    #         _a += [0] * (91 - len(_a))
-    #     rt = np.array(_a, dtype=np.int8)
-    #     return rt
-
-    ## deprecate ##
-    # df_merge['courses_label'] = df_merge['courses_label'].progress_apply(
-    #     lambda x: set_pad_to_list(x))
     # print(df_merge)
     return df_merge
+
+
+def manipulate_course_id_convertion(
+        df: pd.DataFrame,
+        course_id_labelencoder: LabelEncoder) -> pd.DataFrame:
+    '''
+        Args:
+            df: see get_dataframe_user_course.
+
+        Returns:
+            pd.DataFrame: columns with post data, `label_course_id`.
+    '''
+
+    def set_pad_to_list(a: List[str], labelencoder: LabelEncoder) -> np.array:
+        a = np.array(a)
+        a = labelencoder.transform(a)
+
+        # padding
+        n, max_n, pad_num = len(a), 50, -1
+        if n < max_n:
+            a = np.concatenate((a, [pad_num] * (max_n - n)))
+        _a = a[:max_n].copy()
+
+        rt = np.array(_a, dtype=np.int16)
+        return rt
+
+    df['label_course_id'] = df['course_id'].progress_apply(
+        lambda x: set_pad_to_list(x, course_id_labelencoder))
+    return df
 
 
 ## workhouse ##
 
 
 def global_init_workhouse():
-    read_csv_subgroups()
-    get_model()
+    init_model()
     return
 
 
@@ -551,10 +580,10 @@ def preprocess_workhouse() -> Tuple[pd.DataFrame, pd.DataFrame]:
 
     print('******df_courses******')
     df_courses = get_dataframe_courses()
-    df_courses = manipulate_courses(df_courses)
+    (df_courses, course_id_labelrncoder) = manipulate_courses(df_courses)
     print('df_courses.columns', df_courses.columns)
     print('df_courses', df_courses)
-    return df_users, df_courses
+    return df_users, (df_courses, course_id_labelrncoder)
 
 
 def _dataset_workhouse(name, df_preprocess) -> Tuple[List, pd.DataFrame, List]:
@@ -568,7 +597,7 @@ def _dataset_workhouse(name, df_preprocess) -> Tuple[List, pd.DataFrame, List]:
             df: pd.DataFrame the train part (input & label)
             courses_label: List the ground_truth
     '''
-    df_users, df_courses = df_preprocess
+    df_users, (df_courses, course_id_labelencoder) = df_preprocess
 
     # flatten dataframe
     df = get_dataframe_flatten_user_course(name)
@@ -583,21 +612,33 @@ def _dataset_workhouse(name, df_preprocess) -> Tuple[List, pd.DataFrame, List]:
     df_group = get_dataframe_user_subgroup(name[:-4] + '_group.csv')
     df_final = pd.merge(df_final, df_group, on='user_id')
 
+    # get ground truth
+    print('File: ' + name)
+    df_course = get_dataframe_user_course(name)
+    df_course = manipulate_course_id_convertion(df_course,
+                                                course_id_labelencoder)
+    df_final = pd.merge(df_final, df_course, on='user_id')
+
     # drop some other features
     df_final = df_final[[
         'user_id', 'users_gender', 'users_text2vec', 'courses_text2vec',
-        'subgroup'
+        'label_subgroup', 'label_course_id'
     ]]
     # print('df_final', df_final)
 
     # sequence
-    user_id = df_final['user_id']
+    user_id = np.array(df_final['user_id'].tolist())
+    user_id_labelencoder = get_labelencoder_do_fit(user_id)
+    user_id = user_id_labelencoder.transform(user_id)
+
     # ground_truth
-    subgroup = df_final['subgroup']
+    subgroup = df_final['label_subgroup']
+    course_id = df_final['label_course_id']
     # train part (input & label)
     df_final = df_final[['users_gender', 'users_text2vec', 'courses_text2vec']]
     print('df_final', df_final)
-    return user_id, df_final, subgroup
+    return ((user_id, user_id_labelencoder), df_final, subgroup,
+            (course_id, course_id_labelencoder))
 
 
 def dataset_workhouse(df_preprocess, mode: str):
@@ -628,10 +669,99 @@ def dataset_workhouse(df_preprocess, mode: str):
     return _dataset_workhouse(name, df_preprocess)
 
 
+## inference ##
+
+
+def predict_course_search(predict: np.array) -> List[int]:
+    global subgroup_course_metrix
+
+    # print(predict.shape)  # (91,)
+    # print(subgroup_course_metrix.shape)  # (728, 91)
+
+    _predict = predict.reshape(-1, 1)
+    _rt = np.matmul(subgroup_course_metrix, _predict)
+    rt = _rt.reshape(-1).copy()
+
+    # print(rt.shape)  # (728,)
+    return rt
+
+
+def inference_prediction(
+        predicts: Tensor) -> Tuple[List[List[int]], List[List[int]]]:
+    c_topic_lists, c_course_lists = [], []
+    for predict in predicts:
+        # topic
+        c_topic_list = (topk(predict, TOPK).indices + 1).tolist()
+        c_topic_lists.append(c_topic_list)
+
+        # course
+        _predict = predict.detach().cpu().numpy()
+        course_predict = predict_course_search(_predict)
+        c_course_list = [
+            idx + 1 for idx in np.argsort(-np.array(course_predict))
+        ]
+        c_course_lists.append(c_course_list)
+    return c_topic_lists, c_course_lists
+
+
 ## main ##
 
 
+def printer_unique_counter(n: np.ndarray, pre_str: str = None):
+    unique, counts = np.unique(n, return_counts=True)
+    print(len(unique), end=' ')
+    if pre_str != None:
+        print(pre_str, end=' ')
+    print(dict(zip(unique, counts)))
+    return
+
+
+def tester_1():
+    df_user_course = get_dataframe_user_course('train.csv')
+    printer_unique_counter(df_user_course['num_course'].to_numpy(),
+                           pre_str='train course |')
+
+    df_user_subgroup = get_dataframe_user_subgroup('train_group.csv')
+    printer_unique_counter(df_user_subgroup['num_subgroup'].to_numpy(),
+                           pre_str='train subgroup |')
+
+    df_user_course = get_dataframe_user_course('val_seen.csv')
+    printer_unique_counter(df_user_course['num_course'].to_numpy(),
+                           pre_str='val_seen course |')
+
+    df_user_subgroup = get_dataframe_user_subgroup('val_seen_group.csv')
+    printer_unique_counter(df_user_subgroup['num_subgroup'].to_numpy(),
+                           pre_str='val_seen subgroup |')
+
+    df_user_course = get_dataframe_user_course('val_unseen.csv')
+    printer_unique_counter(df_user_course['num_course'].to_numpy(),
+                           pre_str='val_unseen course |')
+
+    df_user_subgroup = get_dataframe_user_subgroup('val_unseen_group.csv')
+    printer_unique_counter(df_user_subgroup['num_subgroup'].to_numpy(),
+                           pre_str='val_unseen subgroup |')
+    return
+
+
 def main():
+
+    print('***Global***')
+    global_init_workhouse()
+
+    print('***Data***')
+    df_preprocess = preprocess_workhouse()
+
+    print('***Hahow_Dataset***')
+    datasets = dataset_workhouse(df_preprocess, MODES[0])
+    print(datasets)
+    datasets = dataset_workhouse(df_preprocess, MODES[1])
+    print(datasets)
+    datasets = dataset_workhouse(df_preprocess, MODES[2])
+    print(datasets)
+    datasets = dataset_workhouse(df_preprocess, MODES[3])
+    print(datasets)
+    datasets = dataset_workhouse(df_preprocess, MODES[4])
+    print(datasets)
     return
 
 

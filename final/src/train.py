@@ -11,7 +11,7 @@ from preprocess import (
     global_init_workhouse,
     preprocess_workhouse,
     dataset_workhouse,
-    convert_predict_to_int_list,
+    inference_prediction,
 )
 from model import Hahow_Model
 from dataset import Hahow_Dataset
@@ -54,7 +54,7 @@ def set_seed(seed):
 def convert_ground_truths(gts):
     c_gts = []
     for gt in gts:
-        k = (gt != 0).sum()
+        k = (gt != -1).sum()
         c_gts.append((gt).tolist()[:k])
     return c_gts
 
@@ -63,14 +63,14 @@ def convert_ground_truths(gts):
 
 
 def train_per_epoch(train_loader, model, optimizer, loss_fn):
-    train_loss, train_acc = 0, 0
-    _y_preds, _subgroups = [], []
+    train_loss = 0
+    _y_topic_preds, _y_course_preds, _subgroups, _courses = [], [], [], []
     for _, data in tqdm(enumerate(train_loader),
                         total=len(train_loader),
                         desc='Train',
                         leave=False):
         # data collate_fn
-        _, (_x_gender, _x_vector, _y), _subgroup = data
+        _, (_x_gender, _x_vector, _y), (_subgroup, _course) = data
         _x_gender = _x_gender.to(DEVICE)
         _x_vector = _x_vector.to(DEVICE)
         _y = _y.to(DEVICE)
@@ -88,27 +88,31 @@ def train_per_epoch(train_loader, model, optimizer, loss_fn):
         train_loss += loss.item()
 
         # accuracy
-        c_y_pred = convert_predict_to_int_list(_y_pred)
+        c_y_topic_pred, c_y_course_pred = inference_prediction(_y_pred)
         c_subgroup = convert_ground_truths(_subgroup)
+        c_course = convert_ground_truths(_course)
 
-        _y_preds.extend(c_y_pred)
+        _y_topic_preds.extend(c_y_topic_pred)
+        _y_course_preds.extend(c_y_course_pred)
         _subgroups.extend(c_subgroup)
+        _courses.extend(c_course)
 
     # report: loss, acc.
     train_loss /= len(train_loader)
-    train_acc = mapk(_subgroups, _y_preds, TOPK)
-    return train_loss, train_acc
+    train_subgroup_acc = mapk(_subgroups, _y_topic_preds, TOPK)
+    train_course_acc = mapk(_courses, _y_course_preds, TOPK)
+    return train_loss, train_subgroup_acc, train_course_acc
 
 
 def eval_per_epoch(eval_loader, model, loss_fn):
-    eval_loss, eval_acc = 0, 0
-    _y_preds, _subgroups = [], []
+    eval_loss = 0
+    _y_topic_preds, _y_course_preds, _subgroups, _courses = [], [], [], []
     for _, data in tqdm(enumerate(eval_loader),
                         total=len(eval_loader),
                         desc='Evaluation',
                         leave=False):
         # data collate_fn
-        _, (_x_gender, _x_vector, _y), _subgroup = data
+        _, (_x_gender, _x_vector, _y), (_subgroup, _course) = data
         _x_gender = _x_gender.to(DEVICE)
         _x_vector = _x_vector.to(DEVICE)
         _y = _y.to(DEVICE)
@@ -122,16 +126,20 @@ def eval_per_epoch(eval_loader, model, loss_fn):
             eval_loss += loss.item()
 
         # accuracy
-        c_y_pred = convert_predict_to_int_list(_y_pred)
+        c_y_topic_pred, c_y_course_pred = inference_prediction(_y_pred)
         c_subgroup = convert_ground_truths(_subgroup)
+        c_course = convert_ground_truths(_course)
 
-        _y_preds.extend(c_y_pred)
+        _y_topic_preds.extend(c_y_topic_pred)
+        _y_course_preds.extend(c_y_course_pred)
         _subgroups.extend(c_subgroup)
+        _courses.extend(c_course)
 
     # report: loss, acc.
     eval_loss /= len(eval_loader)
-    eval_acc = mapk(_subgroups, _y_preds, TOPK)
-    return eval_loss, eval_acc
+    eval_subgroup_acc = mapk(_subgroups, _y_topic_preds, TOPK)
+    eval_course_acc = mapk(_courses, _y_course_preds, TOPK)
+    return eval_loss, eval_subgroup_acc, eval_course_acc
 
 
 ## main ##
@@ -189,7 +197,7 @@ def main():
     for epoch in epoch_pbar:
         # Training loop
         model.train()
-        train_loss, train_acc = train_per_epoch(
+        train_loss, train_subgroup_acc, train_course_acc = train_per_epoch(
             train_loader,
             model,
             optimizer,
@@ -198,12 +206,12 @@ def main():
 
         # Evaluation loop
         model.eval()
-        eval_seen_loss, eval_seen_acc = eval_per_epoch(
+        eval_seen_loss, eval_seen_subgroup_acc, eval_seen_course_acc = eval_per_epoch(
             eval_seen_loader,
             model,
             loss_fn,
         )
-        eval_unseen_loss, eval_unseen_acc = eval_per_epoch(
+        eval_unseen_loss, eval_unseen_subgroup_acc, eval_unseen_course_acc = eval_per_epoch(
             eval_unseen_loader,
             model,
             loss_fn,
@@ -211,9 +219,9 @@ def main():
 
         # output string
         epoch_str = f'\n{(epoch + 1):03d}/{NUM_EPOCH:03d}'
-        train_str = f'\nTrain       | loss = {train_loss:.5f}, acc = {train_acc:.5f}'
-        eval_seen_str = f'\nEval_Seen   | loss = {eval_seen_loss:.5f}, acc = {eval_seen_acc:.5f}'
-        eval_unseen_str = f'\nEval_UnSeen | loss = {eval_unseen_loss:.5f}, acc = {eval_unseen_acc:.5f}'
+        train_str = f'\nTrain       | loss = {train_loss:.5f}, subgroup_acc = {train_subgroup_acc:.5f}, course_acc = {train_course_acc:.5f}'
+        eval_seen_str = f'\nEval_Seen   | loss = {eval_seen_loss:.5f}, subgroup_acc = {eval_seen_subgroup_acc:.5f}, course_acc = {eval_seen_course_acc:.5f}'
+        eval_unseen_str = f'\nEval_UnSeen | loss = {eval_unseen_loss:.5f}, subgroup_acc = {eval_unseen_subgroup_acc:.5f}, course_acc = {eval_unseen_course_acc:.5f}'
         c_str = epoch_str + train_str + eval_seen_str + eval_unseen_str
         output_str += c_str
         print(c_str)
