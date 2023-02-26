@@ -335,7 +335,7 @@ def get_dataset(mode='Train'):
         df = df[['user_id', 'course_id', 'v_sub_groups']]
 
         df = pd.merge(df, df_users, on='user_id')
-        df = df[['v_interests', 'v_sub_groups']]
+        df = df[['gender', 'v_interests', 'v_sub_groups']]
 
         ## add all course for each user ##
         # df_label = get_label()
@@ -343,15 +343,16 @@ def get_dataset(mode='Train'):
         # df = pd.merge(df_label, df_users, on='user_id')
         # df = df[['v_interests', 'v_sub_groups']]
 
-        np_df = df.to_numpy()
+        # df = df.to_numpy()
+
     else:
         df_test = get_test('test_seen.csv')
         df = pd.merge(df_test, df_courses, left_on='user_id')
         df = df[['v_interests']]
 
-        np_df = df.to_numpy()
+        # df = df.to_numpy()
 
-    return np_df
+    return df
 
 
 def main():

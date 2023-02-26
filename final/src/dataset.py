@@ -10,25 +10,28 @@ class Hahow_Dataset(Dataset):
 
     def __init__(self, data: np.ndarray, mode='Train') -> None:
         self.mode = mode
-        data = np.array(data.tolist())
+
+        print('all columns', data.columns)
+        data = data.to_numpy()
+
+        data_gender = np.array(data[:, 0].tolist())
+        data = np.array(data[:, 1:].tolist())
+
+        self.x_gender = torch.tensor(data_gender, dtype=torch.long)
+        self.x_vector = torch.tensor(data[:, 0], dtype=torch.float32)
 
         if self.mode == 'Train':
-            self.x = torch.tensor(data[:, 0], dtype=torch.float32)
             self.y = torch.tensor(data[:, 1], dtype=torch.float32)
-            assert len(self.x) == len(self.y), 'length unmatch'
-        else:
-            self.x = torch.tensor(data[:, 0], dtype=torch.float32)
         return
 
     def __getitem__(self, id: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        c_x = c_y = []
+        c_x_gender = self.x_gender[id]
+        c_x_vector = self.x_vector[id]
+        c_y = []
 
         if self.mode == 'Train':
-            c_x = self.x[id]
             c_y = self.y[id]
-        else:
-            c_x = self.x[id]
-        return c_x, c_y
+        return (c_x_gender, c_x_vector), c_y
 
     def __len__(self) -> int:
-        return len(self.x)
+        return len(self.x_vector)

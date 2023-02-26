@@ -28,18 +28,13 @@ def train_per_epoch(train_loader, model, optimizer, loss_fn):
                         desc='Train',
                         leave=False):
         # data collate_fn
-        _input, _label = data
-        _input = _input.to(DEVICE)
+        (_gender, _vector), _label = data
+        _gender = _gender.to(DEVICE)
+        _vector = _vector.to(DEVICE)
         _label = _label.to(DEVICE)
 
-        # for l in _label:
-        #     for i in l:
-        #         print(i.item(), end=' ')
-        #     print()
-        #     input()
-
         # train: data -> model -> loss
-        y_pred = model(_input)
+        y_pred = model(_gender, _vector)
         loss = loss_fn(y_pred, _label)  # eval loss from loss_fn
 
         # update network
@@ -63,12 +58,13 @@ def eval_per_epoch(eval_loader, model, loss_fn) -> None:
 
         # data collate_fn
         _input, _label = data
-        _input = _input.to(DEVICE)
+        _gender = _gender.to(DEVICE)
+        _vector = _vector.to(DEVICE)
         _label = _label.to(DEVICE)
 
         # eval: data -> model -> loss
         with torch.no_grad():
-            y_pred = model(_input)
+            y_pred = model(_gender, _vector)
             loss = loss_fn(y_pred, _label)  # eval loss from loss_fn
 
         # report: loss, acc.
@@ -97,7 +93,7 @@ def main():
     set_seed(SEED)
 
     print('***Model***')
-    model = Classifier(DROPOUT, 91, HIDDEN_NUM, 91)
+    model = Classifier(DROPOUT, 3, 91, HIDDEN_NUM, 91)
     model.to(DEVICE)
 
     print('***Hahow_Dataset***')

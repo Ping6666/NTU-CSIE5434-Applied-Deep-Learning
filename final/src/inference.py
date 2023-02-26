@@ -22,7 +22,7 @@ AP_K = 50
 
 def main():
     print('***Model***')
-    model = Classifier(DROPOUT, 91, HIDDEN_NUM, 91)
+    model = Classifier(DROPOUT, 3, 91, HIDDEN_NUM, 91)
     model.load_state_dict(torch.load('./tmp.pt'))
     model.to(DEVICE)
     model.eval()
@@ -45,12 +45,14 @@ def main():
                         leave=False):
 
         # data collate_fn
-        _input, _ = data
-        _input = _input.to(DEVICE)
+        (_gender, _vector), _ = data
+        _gender = _gender.to(DEVICE)
+        _vector = _vector.to(DEVICE)
 
         # eval: data -> model -> loss
         with torch.no_grad():
-            y_pred = model(_input)
+            y_pred = model(_gender, _vector)
+            # y_pred = model(_input)
             y_preds.extend(y_pred)
         #     print(len(y_pred))
         #     print(len(y_preds))
@@ -69,11 +71,11 @@ def main():
         # print(subgroup_pred)
         # input()
 
-    df = get_test('test_seen_group.csv')
-    # df = get_test('test_unseen_group.csv')
+    # df = get_test('test_seen_group.csv')
+    df = get_test('test_unseen_group.csv')
 
-    with open('./seen_user_topic.csv', 'w') as f:
-    # with open('./unseen_user_topic.csv', 'w') as f:
+    # with open('./seen_user_topic.csv', 'w') as f:
+    with open('./unseen_user_topic.csv', 'w') as f:
         f.write('user_id,subgroup\n')
         for (_, c_row), subgroup_pred in zip(df.iterrows(), subgroup_preds):
             c_user_id = c_row['user_id']
