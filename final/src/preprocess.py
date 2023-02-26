@@ -175,7 +175,7 @@ def get_list(x: str) -> List:
     return [x]
 
 
-def get_train(name, df_courses):
+def get_train(name):
     '''
     name: 'train.csv'
     '''
@@ -201,34 +201,38 @@ def get_train(name, df_courses):
             train_list.append(c_train)
 
     df_flatten = pd.DataFrame(train_list)
+
+    ## something that get_label will do ##
     # print(df_flatten)
 
-    df_train = pd.merge(df_flatten, df_courses, on='course_id')
-    df_train = df_train[['user_id', 'v_sub_groups']]
-    # print(df_train)
-    # print(df_train['v_sub_groups'][200])
-    # print(df_train['v_sub_groups'][100])
-    # print(df_train['v_sub_groups'][200] + df_train['v_sub_groups'][100])
-    # print(type(df_train['v_sub_groups'][0]))
-    # input()
+    # df_train = pd.merge(df_flatten, df_courses, on='course_id')
+    # df_train = df_train[['user_id', 'v_sub_groups']]
+    # # print(df_train)
+    # # print(df_train['v_sub_groups'][200])
+    # # print(df_train['v_sub_groups'][100])
+    # # print(df_train['v_sub_groups'][200] + df_train['v_sub_groups'][100])
+    # # print(type(df_train['v_sub_groups'][0]))
+    # # input()
 
-    train_dict = {}
-    for _, c_row in df_train.iterrows():
-        c_user = c_row['user_id']
-        c_v_sub_groups = c_row['v_sub_groups']
-        c_v = train_dict.get(c_user)
+    # train_dict = {}
+    # for _, c_row in df_train.iterrows():
+    #     c_user = c_row['user_id']
+    #     c_v_sub_groups = c_row['v_sub_groups']
+    #     c_v = train_dict.get(c_user)
 
-        if c_v is None:
-            c_v = c_v_sub_groups
-        else:
-            c_v += c_v_sub_groups
-        train_dict[c_user] = c_v
+    #     if c_v is None:
+    #         c_v = c_v_sub_groups
+    #     else:
+    #         c_v += c_v_sub_groups
+    #     train_dict[c_user] = c_v
 
-    _df_train = pd.DataFrame(list(train_dict.items()),
-                             columns=['user_id', 'v_sub_groups'])
+    # _df_train = pd.DataFrame(list(train_dict.items()),
+    #                          columns=['user_id', 'v_sub_groups'])
 
-    print(_df_train)
-    return _df_train
+    # print(_df_train)
+    ## end of something ##
+
+    return df_flatten
 
 
 def get_label():
@@ -318,22 +322,26 @@ def get_dataset(mode='Train'):
     '''
     df_courses = get_courses('courses.csv', subgroups_dict)
 
-    # #
-    # '''
-    # col: 'user_id', 'course_id'
-    #      'v_sub_groups'
-    # '''
-    # df_train = get_train('train.csv', df_courses)
-
-    # df = pd.merge(df_train, df_users, on='user_id')
-    # df = df[['user_id', 'v_interests', 'v_sub_groups']]
-
     np_df = None
     if mode == 'Train':
-        df_label = get_label()
+        ## flatten course for each user ##
+        '''
+        col: 'user_id', 'course_id'
+            'v_sub_groups'
+        '''
+        df_train = get_train('train.csv')
 
-        df = pd.merge(df_label, df_users, on='user_id')
+        df = pd.merge(df_train, df_courses, on='course_id')
+        df = df[['user_id', 'course_id', 'v_sub_groups']]
+
+        df = pd.merge(df, df_users, on='user_id')
         df = df[['v_interests', 'v_sub_groups']]
+
+        ## add all course for each user ##
+        # df_label = get_label()
+
+        # df = pd.merge(df_label, df_users, on='user_id')
+        # df = df[['v_interests', 'v_sub_groups']]
 
         np_df = df.to_numpy()
     else:

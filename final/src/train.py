@@ -32,13 +32,11 @@ def train_per_epoch(train_loader, model, optimizer, loss_fn):
         _input = _input.to(DEVICE)
         _label = _label.to(DEVICE)
 
-        print(_label)
-
-        for l in _label:
-            for i in l:
-                print(i.item(), end=' ')
-            print()
-            input()
+        # for l in _label:
+        #     for i in l:
+        #         print(i.item(), end=' ')
+        #     print()
+        #     input()
 
         # train: data -> model -> loss
         y_pred = model(_input)
