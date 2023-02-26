@@ -12,15 +12,15 @@ LR = 0.001
 DROPOUT = 0.1
 HIDDEN_NUM = 128
 
-DEVICE = 'cuda:0'
+TOPK = 91
 
-AP_K = 50
+DEVICE = 'cuda:1'
 
 
 def topk_convertion(group_lists):
     # print(group_lists[0])
     c_group_lists = [
-        torch.add(torch.topk(group_list, AP_K).indices, 1).tolist()
+        torch.add(torch.topk(group_list, TOPK).indices, 1).tolist()
         for group_list in group_lists
     ]
     # print(c_group_lists[0])

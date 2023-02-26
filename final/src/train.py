@@ -8,30 +8,30 @@ from preprocess import read_csv_subgroups, get_dataframe_users, get_dataframe_co
 from dataset import Hahow_Dataset
 from model import Classifier
 
-from average_precision import mapk
+# from average_precision import mapk
 
 SEED = 5487
 
 BATCH_SIZE = 64
 NUM_WORKER = 8
 
-NUM_EPOCH = 5
+NUM_EPOCH = 25
 LR = 0.001
 DROPOUT = 0.1
 HIDDEN_NUM = 128
 
-AP_K = 50
+TOPK = 91
 
-DEVICE = 'cuda:0'
+DEVICE = 'cuda:1'
 
 
 def topk_convertion(group_lists):
-    print(group_lists[0])
+    # print(group_lists[0])
     c_group_lists = [
-        torch.add(torch.topk(group_list, AP_K).indices, 1).tolist()
+        torch.add(torch.topk(group_list, TOPK).indices, 1).tolist()
         for group_list in group_lists
     ]
-    print(c_group_lists[0])
+    # print(c_group_lists[0])
     return c_group_lists
 
 
@@ -63,13 +63,10 @@ def train_per_epoch(train_loader, model, optimizer, loss_fn):
         # report: loss, acc.
         train_loss += loss.item()
 
-    _labels = topk_convertion(_labels)
-    _preds = topk_convertion(_preds)
-    print(len(_labels))
-    print(len(_labels[0]))
-    print(len(_preds))
-    print(len(_preds[0]))
-    train_acc = mapk(_labels, _preds, AP_K)
+    # _labels = topk_convertion(_labels)
+    # _preds = topk_convertion(_preds)
+
+    # train_acc = mapk(_labels, _preds, AP_K)
     return train_loss, train_acc
 
 
@@ -98,13 +95,10 @@ def eval_per_epoch(eval_loader, model, loss_fn) -> None:
         # report: loss, acc.
         eval_loss += loss.item()
 
-    _labels = topk_convertion(_labels)
-    _preds = topk_convertion(_preds)
-    print(len(_labels))
-    print(len(_labels[0]))
-    print(len(_preds))
-    print(len(_preds[0]))
-    train_acc = mapk(_labels, _preds, AP_K)
+    # _labels = topk_convertion(_labels)
+    # _preds = topk_convertion(_preds)
+
+    # eval_acc = mapk(_labels, _preds, AP_K)
     return eval_loss, eval_acc
 
 
