@@ -7,7 +7,12 @@ from torch.utils.data import DataLoader
 
 from preprocess import MODES
 
-from preprocess import preprocess_workhouse, dataset_workhouse, convert_predict_to_int_list
+from preprocess import (
+    global_init_workhouse,
+    preprocess_workhouse,
+    dataset_workhouse,
+    convert_predict_to_int_list,
+)
 from model import Hahow_Model
 from dataset import Hahow_Dataset
 from average_precision import mapk
@@ -132,6 +137,9 @@ def main():
     model = Hahow_Model(EMBED_SIZE, FEATURE_NUM, HIDDEN_NUM, FEATURE_NUM,
                         DROPOUT)
     model.to(DEVICE)
+
+    print('***Global***')
+    global_init_workhouse()
 
     print('***Data***')
     df_preprocess = preprocess_workhouse()

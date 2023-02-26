@@ -5,7 +5,12 @@ from torch.utils.data import DataLoader
 
 from preprocess import MODES
 
-from preprocess import preprocess_workhouse, dataset_workhouse, convert_predict_to_int_list
+from preprocess import (
+    global_init_workhouse,
+    preprocess_workhouse,
+    dataset_workhouse,
+    convert_predict_to_int_list,
+)
 from model import Hahow_Model
 from dataset import Hahow_Dataset
 
@@ -69,6 +74,9 @@ def main():
     model.load_state_dict(torch.load('./save/topic_25.pt'))
     model.to(DEVICE)
     model.eval()
+
+    print('***Global***')
+    global_init_workhouse()
 
     print('***Data***')
     df_preprocess = preprocess_workhouse()

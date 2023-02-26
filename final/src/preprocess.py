@@ -251,7 +251,7 @@ def convert_gender(a: str) -> int:
     return rt
 
 
-def convert_subgroup_strs_to_ids(a: str) -> np.array[np.int8]:
+def convert_subgroup_strs_to_ids(a: str) -> np.array:
     global subgroup_id_pairs
 
     rt = np.zeros(len(subgroup_id_pairs), dtype=np.int8)
@@ -278,8 +278,7 @@ def convert_subgroup_strs_to_ids(a: str) -> np.array[np.int8]:
     return rt
 
 
-def convert_single_text2vec(a: str, topk: int,
-                            multiply: float) -> np.array[np.float64]:
+def convert_single_text2vec(a: str, topk: int, multiply: float) -> np.array:
     global sentence_model
     global vector_table
     global subgroup_id_pairs
@@ -317,13 +316,14 @@ def convert_single_text2vec(a: str, topk: int,
 
 
 def convert_multiple_text2vec(a: List[str], topk: List[int],
-                              multiply: List[float]) -> np.array[np.float64]:
+                              multiply: List[float]) -> np.array:
     '''
     do convert_single_text2vec that share same `topk` & `multiply`.
     '''
 
-    assert (((len(a) == len(topk)) and (len(a) == len(multiply))),
-            'convert_multiple_text2vec | wrong length!!!')
+    # SyntaxWarning: assertion is always true, perhaps remove parentheses?
+    # assert (((len(a) == len(topk)) and (len(a) == len(multiply))),
+    #         'convert_multiple_text2vec | wrong length!!!')
 
     _text2vec = []
     for a_i, _topk, _multiply in zip(a, topk, multiply):
@@ -466,7 +466,7 @@ def manipulate_merge_flatten(df: pd.DataFrame) -> pd.DataFrame:
     df_merge.reset_index()
     df_merge.columns = ['user_id', 'courses_text2vec', 'courses_label']
 
-    def set_pad_to_list(a: set) -> np.array[np.int8]:
+    def set_pad_to_list(a: set) -> np.array:
         _a = list(a)
         if len(_a) != 91:
             _a += [0] * (91 - len(_a))
@@ -482,7 +482,13 @@ def manipulate_merge_flatten(df: pd.DataFrame) -> pd.DataFrame:
 ## workhouse ##
 
 
-def preprocess_workhouse() -> Tuple(pd.DataFrame, pd.DataFrame):
+def global_init_workhouse():
+    read_csv_subgroups()
+    get_model()
+    return
+
+
+def preprocess_workhouse() -> Tuple[pd.DataFrame, pd.DataFrame]:
     '''
     get all redundant data from preprocess stage.
 
