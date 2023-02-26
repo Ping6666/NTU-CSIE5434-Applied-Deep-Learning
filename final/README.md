@@ -4,6 +4,8 @@
 
 [spec](./spec.pdf)
 
+ref. [GitHub - benhamner/Metrics/average_precision.py](https://github.com/benhamner/Metrics/blob/master/Python/ml_metrics/average_precision.py)
+
 ## env
 
 ```
