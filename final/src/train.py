@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from tqdm import trange, tqdm
 
-from preprocess import get_subgroups, get_users, get_courses, get_dataset
+from preprocess import read_csv_subgroups, get_dataframe_users, get_dataframe_courses, dataset_workhouse
 from dataset import Hahow_Dataset
 from model import Classifier
 
@@ -123,16 +123,10 @@ def set_seed(seed):
     return
 
 
-def main():
-    set_seed(SEED)
+def get_datas():
 
-    print('***Model***')
-    model = Classifier(DROPOUT, 3, 91, HIDDEN_NUM, 91)
-    model.to(DEVICE)
-
-    print('***Data***')
     ## constant ##
-    subgroups_dict = get_subgroups('subgroups.csv')
+    subgroups_dict = read_csv_subgroups('subgroups.csv')
 
     ## dataframe ##
 
@@ -141,7 +135,7 @@ def main():
     col: 'user_id', 'gender', 'occupation_titles', 'interests', 'recreation_names',
          'v_interests'
     '''
-    df_users = get_users('users.csv', subgroups_dict)
+    df_users = get_dataframe_users('users.csv', subgroups_dict)
 
     # get_courses
     '''
@@ -150,15 +144,28 @@ def main():
          'description', 'will_learn', 'required_tools', 'recommended_background', 'target_group',
          'v_sub_groups'
     '''
-    df_courses = get_courses('courses.csv', subgroups_dict)
+    df_courses = get_dataframe_courses('courses.csv', subgroups_dict)
+
+    return df_users, df_courses
+
+
+def main():
+    set_seed(SEED)
+
+    print('***Model***')
+    model = Classifier(DROPOUT, 3, 91, HIDDEN_NUM, 91)
+    model.to(DEVICE)
+
+    print('***Data***')
+    df_users, df_courses = get_datas()
 
     print('***Hahow_Dataset***')
     # TODO_: crecate DataLoader for train / dev datasets
-    train_datasets = Hahow_Dataset(get_dataset(df_users, df_courses))
+    train_datasets = Hahow_Dataset(dataset_workhouse(df_users, df_courses))
     eval_seen_datasets = Hahow_Dataset(
-        get_dataset(df_users, df_courses, 'Eval_Seen'))
+        dataset_workhouse(df_users, df_courses, 'Eval_Seen'))
     eval_unseen_datasets = Hahow_Dataset(
-        get_dataset(df_users, df_courses, 'Eval_UnSeen'))
+        dataset_workhouse(df_users, df_courses, 'Eval_UnSeen'))
 
     print('***DataLoader***')
     train_loader = torch.utils.data.DataLoader(
