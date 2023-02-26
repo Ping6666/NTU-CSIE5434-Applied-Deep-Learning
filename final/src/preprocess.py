@@ -123,7 +123,7 @@ def get_dataframe_flatten_user_course(name: str) -> pd.DataFrame:
 def get_dataframe_user_subgroup(name: str) -> pd.DataFrame:
     '''
         Args:
-            name: `val_seen_group.csv`, `val_unseen_group.csv`, 
+            name: `train_group.csv`, `val_seen_group.csv`, `val_unseen_group.csv`, 
             `test_seen_group.csv`, `test_unseen_group.csv`.
 
         Returns:
@@ -137,6 +137,34 @@ def get_dataframe_user_subgroup(name: str) -> pd.DataFrame:
                 'subgroup': str,
             },
         ))
+
+    def set_pad_to_list(a: str) -> List[str]:
+        # split
+        if ' ' in a:
+            a = a.split(' ')
+        else:
+            a = [a]
+
+        # convert to int
+        _a = []
+        for a_i in a:
+            a_i = a_i.strip()
+            if a_i == '':
+                continue
+            _a.append(int(a_i))
+
+        # padding
+        n = len(_a)
+        if n != 91:
+            _a += [0] * (91 - n)
+        rt = np.array(_a, dtype=np.int8)
+        return rt
+
+    df['subgroup'].fillna(value='', inplace=True)
+    df['subgroup'] = df[['subgroup']].progress_apply(
+        lambda x: set_pad_to_list(*x),
+        axis=1,
+    )
     # print(df)
     return df
 
@@ -242,12 +270,16 @@ def get_model() -> None:
 
 def convert_gender(a: str) -> int:
     rt = -1
-    if a == 'male':
-        rt = 0
-    elif a == 'female':
-        rt = 1
-    elif a == 'other':
-        rt = 2
+    try:
+        if a == 'male':
+            rt = 0
+        elif a == 'female':
+            rt = 1
+        elif a == 'other':
+            rt = 2
+    except:
+        print('HI')
+        rt = -1
     return rt
 
 
@@ -307,7 +339,7 @@ def convert_single_text2vec(a: str, topk: int, multiply: float) -> np.array:
         for c, s in zip(corpus_ids, scores):
             c_rt[c] = s
 
-        a_vector[a] = c_rt.copy()
+        vector_table[a] = c_rt.copy()
         rt = c_rt.copy()
 
     # do multiply
@@ -327,6 +359,7 @@ def convert_multiple_text2vec(a: List[str], topk: List[int],
 
     _text2vec = []
     for a_i, _topk, _multiply in zip(a, topk, multiply):
+        a_i = str(a_i)
         # convert string to List[string]
         if ',' in a_i:
             a_i = a_i.split(',')
@@ -394,7 +427,11 @@ def manipulate_users(df: pd.DataFrame) -> pd.DataFrame:
     df['users_text2vec'] = df[[
         'occupation_titles', 'interests', 'recreation_names'
     ]].progress_apply(
-        lambda x: convert_multiple_text2vec(x, [10, 1, 2], [1, 5, 1]),
+        lambda x: convert_multiple_text2vec(
+            x,
+            [91, 1, 1],
+            [0.1, 1, 1],
+        ),
         axis=1,
     )
     return df
@@ -406,23 +443,26 @@ def manipulate_courses(df: pd.DataFrame) -> pd.DataFrame:
             df: see get_dataframe_courses.
 
         Returns:
-            pd.DataFrame: columns with post data, `courses_text2vec`, `courses_label`.
+            pd.DataFrame: columns with post data, `courses_text2vec`.
+            `courses_label` (deprecate)
     '''
     df['courses_text2vec'] = df[[
         'course_name', 'teacher_intro', 'groups', 'sub_groups', 'topics',
         'description', 'will_learn', 'required_tools',
         'recommended_background', 'target_group'
     ]].progress_apply(
-        lambda x: convert_multiple_text2vec(x, [
-            1, 91, 1, 1, 91, 91, 91, 91, 91, 91
-        ], [5, 1, 5, 5, 1, 1, 1, 1, 1, 1]),
+        lambda x: convert_multiple_text2vec(
+            x,
+            [1, 1, 1, 1, 1, 91, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 0.1, 1, 1, 1, 1],
+        ),
         axis=1,
     )
-    # TODO
-    df['courses_label'] = df[['sub_groups']].progress_apply(
-        lambda x: convert_union_subgroups_id(*x),
-        axis=1,
-    )
+    ## deprecate ##
+    # df['courses_label'] = df[['sub_groups']].progress_apply(
+    #     lambda x: convert_union_subgroups_id(*x),
+    #     axis=1,
+    # )
     return df
 
 
@@ -438,7 +478,8 @@ def manipulate_merge_flatten(df: pd.DataFrame) -> pd.DataFrame:
                     - teacher_intro, groups, sub_groups, topics, 
                     - course_published_at_local, description, will_learn, 
                     - required_tools, recommended_background, target_group
-                    - courses_text2vec, courses_label
+                    - courses_text2vec
+                    - courses_label (deprecate)
 
         Returns:
             pd.DataFrame: columns with post data, ``.
@@ -448,33 +489,35 @@ def manipulate_merge_flatten(df: pd.DataFrame) -> pd.DataFrame:
     for _, c_row in tqdm(df.iterrows(), total=df.shape[0]):
         c_user_id = c_row['user_id']
         c_text2vec = c_row['courses_text2vec'].copy()
-        c_labels: set = c_row['courses_label']
+        # c_labels: set = c_row['courses_label']  # deprecate
 
         c_lv = merge_dict.get(c_user_id)
         if c_lv is None:
             # seq. is VERY important
             c_lv = {}
             c_lv['courses_text2vec'] = c_text2vec
-            c_lv['courses_label'] = c_labels
+            # c_lv['courses_label'] = c_labels  # deprecate
         else:
             c_lv['courses_text2vec'] += c_text2vec
-            c_lv['courses_label'].update(c_labels)
+            # c_lv['courses_label'].update(c_labels)  # deprecate
 
         merge_dict[c_user_id] = c_lv
 
-    df_merge = pd.DataFrame.from_dict(merge_dict, orient="index")
-    df_merge.reset_index()
-    df_merge.columns = ['user_id', 'courses_text2vec', 'courses_label']
+    df_merge = pd.DataFrame.from_dict(merge_dict, orient="index").reset_index()
+    df_merge.columns = ['user_id', 'courses_text2vec']
 
-    def set_pad_to_list(a: set) -> np.array:
-        _a = list(a)
-        if len(_a) != 91:
-            _a += [0] * (91 - len(_a))
-        rt = np.array(_a, dtype=np.int8)
-        return rt
+    # df_merge.columns = ['user_id', 'courses_text2vec', 'courses_label']  # deprecate
 
-    df_merge['courses_label'] = df_merge['courses_label'].progress_apply(
-        lambda x: set_pad_to_list(x))
+    # def set_pad_to_list(a: set) -> np.array:
+    #     _a = list(a)
+    #     if len(_a) != 91:
+    #         _a += [0] * (91 - len(_a))
+    #     rt = np.array(_a, dtype=np.int8)
+    #     return rt
+
+    ## deprecate ##
+    # df_merge['courses_label'] = df_merge['courses_label'].progress_apply(
+    #     lambda x: set_pad_to_list(x))
     # print(df_merge)
     return df_merge
 
@@ -496,13 +539,17 @@ def preprocess_workhouse() -> Tuple[pd.DataFrame, pd.DataFrame]:
             pd.DataFrame: df_users
             pd.DataFrame: df_courses
     '''
+    print('******df_users******')
     df_users = get_dataframe_users()
     df_users = manipulate_users(df_users)
     print('df_users.columns', df_users.columns)
+    print('df_users', df_users)
 
+    print('******df_courses******')
     df_courses = get_dataframe_courses()
     df_courses = manipulate_courses(df_courses)
     print('df_courses.columns', df_courses.columns)
+    print('df_courses', df_courses)
     return df_users, df_courses
 
 
@@ -527,19 +574,26 @@ def _dataset_workhouse(name, df_preprocess) -> Tuple[List, pd.DataFrame, List]:
     df_man_merge = manipulate_merge_flatten(df_flatten)
     df_final = pd.merge(df_man_merge, df_users, on='user_id')
 
+    # get ground truth
+    print('File: ' + name[:-4] + '_group.csv')
+    df_group = get_dataframe_user_subgroup(name[:-4] + '_group.csv')
+    df_final = pd.merge(df_final, df_group, on='user_id')
+
     # drop some other features
     df_final = df_final[[
         'user_id', 'users_gender', 'users_text2vec', 'courses_text2vec',
-        'courses_label'
+        'subgroup'
     ]]
+    # print('df_final', df_final)
 
     # sequence
-    user_id = df['user_id'].to_list()
+    user_id = df_final['user_id']
     # ground_truth
-    courses_label = df['courses_label'].to_list()
+    subgroup = df_final['subgroup']
     # train part (input & label)
-    df = df[['users_gender', 'users_text2vec', 'courses_text2vec']]
-    return user_id, df, courses_label
+    df_final = df_final[['users_gender', 'users_text2vec', 'courses_text2vec']]
+    print('df_final', df_final)
+    return user_id, df_final, subgroup
 
 
 def dataset_workhouse(df_preprocess, mode: str):
@@ -552,7 +606,7 @@ def dataset_workhouse(df_preprocess, mode: str):
         Returns:
             see _dataset_workhouse
     '''
-    assert mode in MODES, 'dataset_workhouse | wrong mode!!!'
+    # assert mode in MODES, 'dataset_workhouse | wrong mode!!!'
 
     name = ''
     if mode == MODES[0]:
@@ -566,6 +620,7 @@ def dataset_workhouse(df_preprocess, mode: str):
     elif mode == MODES[4]:
         name = 'test_unseen.csv'
 
+    print(f'File: {name}')
     return _dataset_workhouse(name, df_preprocess)
 
 

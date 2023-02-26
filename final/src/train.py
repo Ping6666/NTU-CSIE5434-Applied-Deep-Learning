@@ -25,11 +25,12 @@ DEVICE = 'cuda:1'
 BATCH_SIZE = 64
 NUM_WORKER = 8
 
-NUM_EPOCH = 25
 EMBED_SIZE = 2
 FEATURE_NUM = 91
 HIDDEN_NUM = 128
-DROPOUT = 0.01
+DROPOUT = 0.05
+
+NUM_EPOCH = 25
 LR = 0.001
 
 TOPK = 50
@@ -63,13 +64,13 @@ def convert_ground_truths(gts):
 
 def train_per_epoch(train_loader, model, optimizer, loss_fn):
     train_loss, train_acc = 0, 0
-    _y_preds, _courses_labels = [], []
+    _y_preds, _subgroups = [], []
     for _, data in tqdm(enumerate(train_loader),
                         total=len(train_loader),
                         desc='Train',
                         leave=False):
         # data collate_fn
-        _, (_x_gender, _x_vector, _y), _courses_label = data
+        _, (_x_gender, _x_vector, _y), _subgroup = data
         _x_gender = _x_gender.to(DEVICE)
         _x_vector = _x_vector.to(DEVICE)
         _y = _y.to(DEVICE)
@@ -87,24 +88,27 @@ def train_per_epoch(train_loader, model, optimizer, loss_fn):
         train_loss += loss.item()
 
         # accuracy
-        _y_preds.extend(convert_predict_to_int_list(_y_pred))
-        _courses_labels.extend(convert_ground_truths(_courses_label))
+        c_y_pred = convert_predict_to_int_list(_y_pred)
+        c_subgroup = convert_ground_truths(_subgroup)
+
+        _y_preds.extend(c_y_pred)
+        _subgroups.extend(c_subgroup)
 
     # report: loss, acc.
     train_loss /= len(train_loader)
-    train_acc = mapk(_courses_labels, _y_preds, TOPK)
+    train_acc = mapk(_subgroups, _y_preds, TOPK)
     return train_loss, train_acc
 
 
 def eval_per_epoch(eval_loader, model, loss_fn):
     eval_loss, eval_acc = 0, 0
-    _y_preds, _courses_labels = [], []
+    _y_preds, _subgroups = [], []
     for _, data in tqdm(enumerate(eval_loader),
                         total=len(eval_loader),
                         desc='Evaluation',
                         leave=False):
         # data collate_fn
-        _, (_x_gender, _x_vector, _y), _courses_label = data
+        _, (_x_gender, _x_vector, _y), _subgroup = data
         _x_gender = _x_gender.to(DEVICE)
         _x_vector = _x_vector.to(DEVICE)
         _y = _y.to(DEVICE)
@@ -118,12 +122,15 @@ def eval_per_epoch(eval_loader, model, loss_fn):
             eval_loss += loss.item()
 
         # accuracy
-        _y_preds.extend(convert_predict_to_int_list(_y_pred))
-        _courses_labels.extend(convert_ground_truths(_courses_label))
+        c_y_pred = convert_predict_to_int_list(_y_pred)
+        c_subgroup = convert_ground_truths(_subgroup)
+
+        _y_preds.extend(c_y_pred)
+        _subgroups.extend(c_subgroup)
 
     # report: loss, acc.
     eval_loss /= len(eval_loader)
-    eval_acc = mapk(_courses_labels, _y_preds, TOPK)
+    eval_acc = mapk(_subgroups, _y_preds, TOPK)
     return eval_loss, eval_acc
 
 
@@ -145,12 +152,11 @@ def main():
     df_preprocess = preprocess_workhouse()
 
     print('***Hahow_Dataset***')
-    train_datasets = Hahow_Dataset(dataset_workhouse(df_preprocess, MODES[0]),
-                                   MODES[0])
+    train_datasets = Hahow_Dataset(dataset_workhouse(df_preprocess, MODES[0]))
     eval_seen_datasets = Hahow_Dataset(
-        dataset_workhouse(df_preprocess, MODES[1]), MODES[1])
+        dataset_workhouse(df_preprocess, MODES[1]))
     eval_unseen_datasets = Hahow_Dataset(
-        dataset_workhouse(df_preprocess, MODES[2]), MODES[2])
+        dataset_workhouse(df_preprocess, MODES[2]))
 
     print('***DataLoader***')
     train_loader = DataLoader(

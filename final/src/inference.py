@@ -24,7 +24,7 @@ NUM_WORKER = 8
 EMBED_SIZE = 2
 FEATURE_NUM = 91
 HIDDEN_NUM = 128
-DROPOUT = 0.01
+DROPOUT = 0.05
 
 TOPK = 50
 
@@ -47,13 +47,15 @@ def predict(test_loader, model):
             _y_pred = model(_x_gender, _x_vector)
 
         # report
-        _user_ids.extend(convert_predict_to_int_list(_user_id))
+        _user_ids.extend(_user_id)
         _y_preds.extend(convert_predict_to_int_list(_y_pred))
     return _user_ids, _y_preds
 
 
-def save_prediction(prediction, save_file):
+def save_prediction(prediction, le, save_file):
     _user_ids, _y_preds = prediction
+
+    _user_ids = list(le.inverse_transform(_user_ids))
 
     with open(save_file, 'w') as f:
         f.write('user_id,subgroup\n')
@@ -83,9 +85,11 @@ def main():
 
     print('***Hahow_Dataset***')
     test_seen_datasets = Hahow_Dataset(
-        dataset_workhouse(df_preprocess, MODES[3]), MODES[3])
+        dataset_workhouse(df_preprocess, MODES[3]))
+    test_seen_datasets_le = test_seen_datasets.get_labelencoder()
     test_unseen_datasets = Hahow_Dataset(
-        dataset_workhouse(df_preprocess, MODES[4]), MODES[4])
+        dataset_workhouse(df_preprocess, MODES[4]))
+    test_unseen_datasets_le = test_unseen_datasets.get_labelencoder()
 
     print('***DataLoader***')
     test_seen_loader = DataLoader(
@@ -102,14 +106,14 @@ def main():
     print('***Predict Seen***')
     save_prediction(
         predict(test_seen_loader, model),
-        'test_seen_group.csv',
+        test_seen_datasets_le,
         './seen_user_topic.csv',
     )
 
     print('***Predict UnSeen***')
     save_prediction(
         predict(test_unseen_loader, model),
-        'test_unseen_group.csv',
+        test_unseen_datasets_le,
         './unseen_user_topic.csv',
     )
 
