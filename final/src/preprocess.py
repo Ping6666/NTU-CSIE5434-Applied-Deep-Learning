@@ -458,7 +458,7 @@ def manipulate_users(df: pd.DataFrame) -> pd.DataFrame:
         lambda x: convert_multiple_text2vec(
             x,
             [91, 1, 91],
-            [1, 20, 1],
+            [1, 30, 1],
         ),
         axis=1,
     )
@@ -484,7 +484,7 @@ def manipulate_courses(df: pd.DataFrame) -> Tuple[pd.DataFrame, LabelEncoder]:
     ]].progress_apply(
         lambda x: convert_multiple_text2vec(
             x,
-            [1, 1, 1, 1, 1, 91, 1, 1, 1, 1],
+            [1, 91, 1, 1, 1, 91, 5, 1, 5, 5],
             [1, 1, 1, 20, 1, 1, 1, 1, 1, 1],
         ),
         axis=1,
@@ -497,8 +497,8 @@ def manipulate_courses(df: pd.DataFrame) -> Tuple[pd.DataFrame, LabelEncoder]:
     ]].progress_apply(
         lambda x: convert_multiple_text2vec(
             x,
-            [1, 1, 1, 1, 1, 91, 1, 1, 1, 1],
-            [10, 0.5, 1, 1, 1, 0.5, 0.5, 0.5, 0.5, 0.5],
+            [1, 91, 1, 1, 1, 91, 5, 1, 5, 5],
+            [20, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         ),
         axis=1,
     )

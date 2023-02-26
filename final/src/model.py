@@ -26,7 +26,7 @@ class Hahow_Model(nn.Module):
 
         self.fc1 = nn.Linear(num_feature, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
-        # self.fc3 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, hidden_size)
         self.fc4 = nn.Linear(hidden_size, num_class)
 
         self.bn = nn.BatchNorm1d(hidden_size)
@@ -64,7 +64,7 @@ class Hahow_Model(nn.Module):
 
         _x = self.dropout(self.relu(self.bn(self.fc1(_x))))
         _x = self.dropout(self.relu(self.bn(self.fc2(_x))))
-        # _x = self.dropout(self.relu(self.bn(self.fc3(_x))))
+        _x = self.dropout(self.relu(self.bn(self.fc3(_x))))
         _x = self.fc4(_x)
 
         return _x, self.predict_course_search(_x, self.topic_course)

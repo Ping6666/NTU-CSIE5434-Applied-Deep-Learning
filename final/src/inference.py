@@ -21,11 +21,11 @@ from dataset import Hahow_Dataset
 SEED = 5487
 DEVICE = 'cuda:1'
 
-BATCH_SIZE = 64
+BATCH_SIZE = 256
 NUM_WORKER = 8
 
 FEATURE_NUM = 91
-HIDDEN_NUM = 128
+HIDDEN_NUM = 256
 DROPOUT = 0.1
 
 TOPK = 50
@@ -156,8 +156,8 @@ if __name__ == "__main__":
     main()
 
 '''
-048/050 | t is topic, c is course.
-Train       | t_loss = 0.40763, c_loss = 0.07802, t_acc = 0.41122, c_acc = 0.01002
-Eval_Seen   | t_loss = 0.45240, c_loss = 0.07689, t_acc = 0.22796, c_acc = 0.04717
-Eval_UnSeen | t_loss = 0.49917, c_loss = 0.09249, t_acc = 0.26636, c_acc = 0.02655
+005/050 | t is topic, c is course.
+Train       | t_loss = 0.29471, c_loss = 0.01893, t_acc = 0.36340, c_acc = 0.01027
+Eval_Seen   | t_loss = 0.31309, c_loss = 0.01755, t_acc = 0.21205, c_acc = 0.04789
+Eval_UnSeen | t_loss = 0.36096, c_loss = 0.02098, t_acc = 0.23909, c_acc = 0.02767
 '''

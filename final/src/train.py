@@ -22,15 +22,15 @@ from average_precision import mapk
 SEED = 5487
 DEVICE = 'cuda:1'
 
-BATCH_SIZE = 64
+BATCH_SIZE = 256
 NUM_WORKER = 8
 
 FEATURE_NUM = 91
-HIDDEN_NUM = 128
+HIDDEN_NUM = 256
 DROPOUT = 0.1
 
 NUM_EPOCH = 50
-LR = 0.001
+LR = 0.005
 
 TOPK = 50
 
