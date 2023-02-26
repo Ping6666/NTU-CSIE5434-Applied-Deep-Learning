@@ -1,114 +1,111 @@
-import torch
 from tqdm import tqdm
 
-from preprocess import predataset_workhouse, get_dataframe_test, dataset_workhouse
+import torch
+from torch.utils.data import DataLoader
+
+from preprocess import MODES
+
+from preprocess import preprocess_workhouse, dataset_workhouse, convert_predict_to_int_list
+from model import Hahow_Model
 from dataset import Hahow_Dataset
-from model import Classifier
 
-BATCH_SIZE = 128
-NUM_WORKER = 8
-
-DROPOUT = 0.01
-EMBED_SIZE = 2
-HIDDEN_NUM = 128
-F_NUM = 91
-
-TOPK = 91
+## global ##
 
 DEVICE = 'cuda:1'
 
+BATCH_SIZE = 64
+NUM_WORKER = 8
 
-def topk_convertion(group_lists, truncation=False):
-    # if truncation:
-    #     print(group_lists[0])
+EMBED_SIZE = 2
+FEATURE_NUM = 91
+HIDDEN_NUM = 128
+DROPOUT = 0.01
 
-    c_group_lists = []
-    for group_list in group_lists:
-        k = len(group_list)
-        if truncation:
-            k = (group_list == 1).sum()
-        c_group_list = (torch.topk(group_list, TOPK).indices + 1).tolist()[:k]
-        c_group_lists.append(c_group_list)
+TOPK = 50
 
-    # if truncation:
-    #     print(c_group_lists[0])
-
-    return c_group_lists
+## predict ##
 
 
-def predict(test_loader, model, predict_file, save_file):
-    '''
-    predict_file: 'test_seen_group.csv', 'test_unseen_group.csv'
-    save_file: './seen_user_topic.csv', './unseen_user_topic.csv'
-    '''
-
-    y_preds = []
-    for i, data in tqdm(enumerate(test_loader),
+def predict(test_loader, model):
+    _user_ids, _y_preds = [], []
+    for _, data in tqdm(enumerate(test_loader),
                         total=len(test_loader),
                         desc='Test',
                         leave=False):
-
         # data collate_fn
-        (_gender, _vector), _, _ = data
-        _gender = _gender.to(DEVICE)
-        _vector = _vector.to(DEVICE)
+        _user_id, (_x_gender, _x_vector, _), _ = data
+        _x_gender = _x_gender.to(DEVICE)
+        _x_vector = _x_vector.to(DEVICE)
 
         # eval: data -> model -> loss
         with torch.no_grad():
-            y_pred = model(_gender, _vector)
-            y_preds.extend(topk_convertion(y_pred))
+            _y_pred = model(_x_gender, _x_vector)
 
-    df = get_dataframe_test(predict_file)
+        # report
+        _user_ids.extend(convert_predict_to_int_list(_user_id))
+        _y_preds.extend(convert_predict_to_int_list(_y_pred))
+    return _user_ids, _y_preds
+
+
+def save_prediction(prediction, save_file):
+    _user_ids, _y_preds = prediction
 
     with open(save_file, 'w') as f:
         f.write('user_id,subgroup\n')
-        for (_, c_row), subgroup_pred in zip(df.iterrows(), y_preds):
-            c_user_id = c_row['user_id']
-
-            c_subgroup = [str(sgp) for sgp in subgroup_pred]
-            c_subgroup = ' '.join(c_subgroup)
+        for c_user_id, c_pred in zip(_user_ids, _y_preds):
+            c_subgroup = ' '.join([str(sgp) for sgp in c_pred])
 
             f.write(f'{c_user_id},{c_subgroup}\n')
-
     return
+
+
+## main ##
 
 
 def main():
     print('***Model***')
-    model = Classifier(DROPOUT, EMBED_SIZE, F_NUM, HIDDEN_NUM, F_NUM)
-    model.load_state_dict(torch.load('./tmp.pt'))
+    model = Hahow_Model(EMBED_SIZE, FEATURE_NUM, HIDDEN_NUM, FEATURE_NUM,
+                        DROPOUT)
+    model.load_state_dict(torch.load('./save/topic_25.pt'))
     model.to(DEVICE)
     model.eval()
 
     print('***Data***')
-    df_users, df_courses = predataset_workhouse()
+    df_preprocess = preprocess_workhouse()
 
     print('***Hahow_Dataset***')
-    # TODO_: crecate DataLoader for train / dev datasets
     test_seen_datasets = Hahow_Dataset(
-        dataset_workhouse(df_users, df_courses, 'Test_Seen'), 'Dev')
-
+        dataset_workhouse(df_preprocess, MODES[3]), MODES[3])
     test_unseen_datasets = Hahow_Dataset(
-        dataset_workhouse(df_users, df_courses, 'Test_UnSeen'), 'Dev')
+        dataset_workhouse(df_preprocess, MODES[4]), MODES[4])
 
     print('***DataLoader***')
-    test_seen_loader = torch.utils.data.DataLoader(
+    test_seen_loader = DataLoader(
         test_seen_datasets,
         batch_size=BATCH_SIZE,
         num_workers=NUM_WORKER,
     )
-    test_unseen_loader = torch.utils.data.DataLoader(
+    test_unseen_loader = DataLoader(
         test_unseen_datasets,
         batch_size=BATCH_SIZE,
         num_workers=NUM_WORKER,
     )
 
-    predict(test_seen_loader, model, 'test_seen_group.csv',
-            './seen_user_topic.csv')
-    predict(test_unseen_loader, model, 'test_unseen_group.csv',
-            './unseen_user_topic.csv')
+    print('***Predict Seen***')
+    save_prediction(
+        predict(test_seen_loader, model),
+        'test_seen_group.csv',
+        './seen_user_topic.csv',
+    )
 
-    print("All Epoch on Test were finished.\n")
+    print('***Predict UnSeen***')
+    save_prediction(
+        predict(test_unseen_loader, model),
+        'test_unseen_group.csv',
+        './unseen_user_topic.csv',
+    )
+
+    print('All Epoch on Test were finished.\n')
     return
 
 

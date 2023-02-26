@@ -1,126 +1,33 @@
 import random
 import numpy as np
-
-import torch
 from tqdm import trange, tqdm
 
-from preprocess import predataset_workhouse, dataset_workhouse
-from dataset import Hahow_Dataset
-from model import Classifier
+import torch
+from torch.utils.data import DataLoader
 
+from preprocess import MODES
+
+from preprocess import preprocess_workhouse, dataset_workhouse, convert_predict_to_int_list
+from model import Hahow_Model
+from dataset import Hahow_Dataset
 from average_precision import mapk
 
+## global ##
+
 SEED = 5487
-
-BATCH_SIZE = 128
-NUM_WORKER = 8
-
-NUM_EPOCH = 5
-LR = 0.001
-
-DROPOUT = 0.01
-EMBED_SIZE = 2
-HIDDEN_NUM = 128
-F_NUM = 91
-
-TOPK = 91
-
 DEVICE = 'cuda:1'
 
+BATCH_SIZE = 64
+NUM_WORKER = 8
 
-def list_convertion(group_lists):
-    c_group_lists = []
-    for group_list in group_lists:
-        k = (group_list != 0).sum()
-        c_group_list = (group_list).tolist()[:k]
-        # print(len(c_group_list))
-        c_group_lists.append(c_group_list)
+NUM_EPOCH = 25
+EMBED_SIZE = 2
+FEATURE_NUM = 91
+HIDDEN_NUM = 128
+DROPOUT = 0.01
+LR = 0.001
 
-    return c_group_lists
-
-
-def topk_convertion(group_lists, truncation=False):
-    # if truncation:
-    #     print(group_lists[0])
-
-    c_group_lists = []
-    for group_list in group_lists:
-        k = len(group_list)
-        if truncation:
-            k = (group_list == 1).sum()
-        c_group_list = (torch.topk(group_list, TOPK).indices + 1).tolist()[:k]
-        c_group_lists.append(c_group_list)
-
-    # if truncation:
-    #     print(c_group_lists[0])
-
-    return c_group_lists
-
-
-def train_per_epoch(train_loader, model, optimizer, loss_fn, acc=False):
-    train_loss, train_acc = 0, 0
-    # _preds = []
-    _preds, _gts = [], []
-    for i, data in tqdm(enumerate(train_loader),
-                        total=len(train_loader),
-                        desc='Train',
-                        leave=False):
-        # data collate_fn
-        (_gender, _vector), _label, gt = data
-        _gender = _gender.to(DEVICE)
-        _vector = _vector.to(DEVICE)
-        _label = _label.to(DEVICE)
-
-        # train: data -> model -> loss
-        y_pred = model(_gender, _vector)
-        loss = loss_fn(y_pred, _label)  # eval loss from loss_fn
-
-        if acc:
-            _preds.extend(topk_convertion(y_pred))
-            _gts.extend(list_convertion(gt))
-
-        # update network
-        optimizer.zero_grad()  # zero gradients
-        loss.backward()
-        optimizer.step()  # adjust learning weights
-
-        # report: loss, acc.
-        train_loss += loss.item()
-
-    if acc:
-        train_acc = mapk(_gts, _preds, TOPK)
-    return train_loss, train_acc
-
-
-def eval_per_epoch(eval_loader, model, loss_fn, acc=False) -> None:
-    eval_loss, eval_acc = 0, 0
-    _preds, _labels = [], []
-    for i, data in tqdm(enumerate(eval_loader),
-                        total=len(eval_loader),
-                        desc='Evaluation',
-                        leave=False):
-
-        # data collate_fn
-        (_gender, _vector), _label, _ = data
-        _gender = _gender.to(DEVICE)
-        _vector = _vector.to(DEVICE)
-        _label = _label.to(DEVICE)
-
-        # eval: data -> model -> loss
-        with torch.no_grad():
-            y_pred = model(_gender, _vector)
-            loss = loss_fn(y_pred, _label)  # eval loss from loss_fn
-
-            if acc:
-                _preds.extend(topk_convertion(y_pred))
-                _labels.extend(topk_convertion(_label, True))
-
-        # report: loss, acc.
-        eval_loss += loss.item()
-
-    if acc:
-        eval_acc = mapk(_labels, _preds, TOPK)
-    return eval_loss, eval_acc
+TOPK = 50
 
 
 def set_seed(seed):
@@ -138,87 +45,172 @@ def set_seed(seed):
     return
 
 
+def convert_ground_truths(gts):
+    c_gts = []
+    for gt in gts:
+        k = (gt != 0).sum()
+        c_gts.append((gt).tolist()[:k])
+    return c_gts
+
+
+## per_epoch ##
+
+
+def train_per_epoch(train_loader, model, optimizer, loss_fn):
+    train_loss, train_acc = 0, 0
+    _y_preds, _courses_labels = [], []
+    for _, data in tqdm(enumerate(train_loader),
+                        total=len(train_loader),
+                        desc='Train',
+                        leave=False):
+        # data collate_fn
+        _, (_x_gender, _x_vector, _y), _courses_label = data
+        _x_gender = _x_gender.to(DEVICE)
+        _x_vector = _x_vector.to(DEVICE)
+        _y = _y.to(DEVICE)
+
+        # train: data -> model -> loss
+        _y_pred = model(_x_gender, _x_vector)
+        loss = loss_fn(_y_pred, _y)
+
+        # update network (zero gradients -> backward ->  adjust learning weights)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        # report: loss, acc.
+        train_loss += loss.item()
+
+        # accuracy
+        _y_preds.extend(convert_predict_to_int_list(_y_pred))
+        _courses_labels.extend(convert_ground_truths(_courses_label))
+
+    # report: loss, acc.
+    train_loss /= len(train_loader)
+    train_acc = mapk(_courses_labels, _y_preds, TOPK)
+    return train_loss, train_acc
+
+
+def eval_per_epoch(eval_loader, model, loss_fn):
+    eval_loss, eval_acc = 0, 0
+    _y_preds, _courses_labels = [], []
+    for _, data in tqdm(enumerate(eval_loader),
+                        total=len(eval_loader),
+                        desc='Evaluation',
+                        leave=False):
+        # data collate_fn
+        _, (_x_gender, _x_vector, _y), _courses_label = data
+        _x_gender = _x_gender.to(DEVICE)
+        _x_vector = _x_vector.to(DEVICE)
+        _y = _y.to(DEVICE)
+
+        # eval: data -> model -> loss
+        with torch.no_grad():
+            _y_pred = model(_x_gender, _x_vector)
+            loss = loss_fn(_y_pred, _y)
+
+            # report: loss, acc.
+            eval_loss += loss.item()
+
+        # accuracy
+        _y_preds.extend(convert_predict_to_int_list(_y_pred))
+        _courses_labels.extend(convert_ground_truths(_courses_label))
+
+    # report: loss, acc.
+    eval_loss /= len(eval_loader)
+    eval_acc = mapk(_courses_labels, _y_preds, TOPK)
+    return eval_loss, eval_acc
+
+
+## main ##
+
+
 def main():
     set_seed(SEED)
 
     print('***Model***')
-    model = Classifier(DROPOUT, EMBED_SIZE, F_NUM, HIDDEN_NUM, F_NUM)
+    model = Hahow_Model(EMBED_SIZE, FEATURE_NUM, HIDDEN_NUM, FEATURE_NUM,
+                        DROPOUT)
     model.to(DEVICE)
 
     print('***Data***')
-    df_users, df_courses = predataset_workhouse()
+    df_preprocess = preprocess_workhouse()
 
     print('***Hahow_Dataset***')
-    # crecate DataLoader for train / dev datasets
-    train_datasets = Hahow_Dataset(dataset_workhouse(df_users, df_courses),
-                                   'TTT')
+    train_datasets = Hahow_Dataset(dataset_workhouse(df_preprocess, MODES[0]),
+                                   MODES[0])
     eval_seen_datasets = Hahow_Dataset(
-        dataset_workhouse(df_users, df_courses, 'Eval_Seen'))
+        dataset_workhouse(df_preprocess, MODES[1]), MODES[1])
     eval_unseen_datasets = Hahow_Dataset(
-        dataset_workhouse(df_users, df_courses, 'Eval_UnSeen'))
+        dataset_workhouse(df_preprocess, MODES[2]), MODES[2])
 
     print('***DataLoader***')
-    train_loader = torch.utils.data.DataLoader(
+    train_loader = DataLoader(
         train_datasets,
         batch_size=BATCH_SIZE,
         num_workers=NUM_WORKER,
         shuffle=True,
     )
-    eval_seen_loader = torch.utils.data.DataLoader(
+    eval_seen_loader = DataLoader(
         eval_seen_datasets,
         batch_size=BATCH_SIZE,
         num_workers=NUM_WORKER,
         shuffle=True,
     )
-    eval_unseen_loader = torch.utils.data.DataLoader(
+    eval_unseen_loader = DataLoader(
         eval_unseen_datasets,
         batch_size=BATCH_SIZE,
         num_workers=NUM_WORKER,
         shuffle=True,
     )
 
-    print('***optimizer & loss_fn***')
-    # TODO_: init optimizer, loss function
-    optimizer = torch.optim.Adam(model.parameters(), LR)  # or use SGD
+    print('***optimizer & loss function***')
+    optimizer = torch.optim.Adam(model.parameters(), LR)
     loss_fn = torch.nn.MSELoss()
 
     output_str = ''
 
     print('***Train & Evaluation***')
-    epoch_pbar = trange(NUM_EPOCH, desc="Epoch")
+    epoch_pbar = trange(NUM_EPOCH, desc='Epoch')
     for epoch in epoch_pbar:
         # Training loop
         model.train()
-        train_loss, train_acc = train_per_epoch(train_loader, model, optimizer,
-                                                loss_fn, True)
-        train_loss /= len(train_loader)
-        train_acc /= len(train_datasets)
-        c_train_output_str = f"Train {(epoch + 1):03d}/{NUM_EPOCH:03d} | loss = {train_loss:.5f}, acc = {train_acc:.5f}"
+        train_loss, train_acc = train_per_epoch(
+            train_loader,
+            model,
+            optimizer,
+            loss_fn,
+        )
 
         # Evaluation loop
         model.eval()
-        eval_seen_loss, eval_seen_acc = eval_per_epoch(eval_seen_loader, model,
-                                                       loss_fn, True)
-        eval_seen_loss /= len(eval_seen_loader)
-        eval_seen_acc /= len(eval_seen_datasets)
-        c_eval_seen_output_str = f"Eval_Seen {(epoch + 1):03d}/{NUM_EPOCH:03d} | loss = {eval_seen_loss:.5f}, acc = {eval_seen_acc:.5f}"
-
+        eval_seen_loss, eval_seen_acc = eval_per_epoch(
+            eval_seen_loader,
+            model,
+            loss_fn,
+        )
         eval_unseen_loss, eval_unseen_acc = eval_per_epoch(
-            eval_unseen_loader, model, loss_fn, True)
-        eval_unseen_loss /= len(eval_unseen_loader)
-        eval_unseen_acc /= len(eval_unseen_datasets)
-        c_eval_unseen_output_str = f"Eval_UnSeen {(epoch + 1):03d}/{NUM_EPOCH:03d} | loss = {eval_unseen_loss:.5f}, acc = {eval_unseen_acc:.5f}"
+            eval_unseen_loader,
+            model,
+            loss_fn,
+        )
 
-        print(f"\n{c_train_output_str}" + f"\n{c_eval_seen_output_str}" +
-              f"\n{c_eval_unseen_output_str}")
-        output_str += f"\n{c_train_output_str}" + f"\n{c_eval_seen_output_str}" + f"\n{c_eval_unseen_output_str}"
+        # output string
+        epoch_str = f'\n{(epoch + 1):03d}/{NUM_EPOCH:03d}'
+        train_str = f'\nTrain       | loss = {train_loss:.5f}, acc = {train_acc:.5f}'
+        eval_seen_str = f'\nEval_Seen   | loss = {eval_seen_loss:.5f}, acc = {eval_seen_acc:.5f}'
+        eval_unseen_str = f'\nEval_UnSeen | loss = {eval_unseen_loss:.5f}, acc = {eval_unseen_acc:.5f}'
+        c_str = epoch_str + train_str + eval_seen_str + eval_unseen_str
+        output_str += c_str
+        print(c_str)
 
-    print("All Epoch on Train and Eval were finished.\n")
+        # Inference on test set
+        torch.save(model.state_dict(), f'./save/topic_{(epoch + 1):02d}.pt')
+        print(f'Save model_{(epoch + 1):02d} was done.\n')
+
     print(output_str)
-
-    # Inference on test set
-    torch.save(model.state_dict(), './tmp.pt')
-    print("Save model was done.\n")
+    print('All Epoch on Train and Eval were finished.\n')
+    return
 
 
 if __name__ == "__main__":

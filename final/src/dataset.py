@@ -5,57 +5,43 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+# from preprocess import MODES
+
 
 class Hahow_Dataset(Dataset):
 
-    def __init__(self, data: np.ndarray, mode='Train') -> None:
-        self.mode = mode
+    # def __init__(self, data, mode: str) -> None:
+    def __init__(self, data) -> None:
+        # assert mode in MODES, 'Hahow_Dataset | wrong mode!!!'
+        # self.mode = mode
 
-        data, gt = data
+        # unpack dataset
+        user_id, df, courses_label = data
 
-        print('all columns', data.columns)
-        print('length', data.shape[0])
-        data = data.to_numpy()
+        self.user_id = torch.tensor(user_id)
+        self.courses_label = torch.tensor(courses_label)
 
-        data_gender = np.array(data[:, 0].tolist())
-        data = np.array(data[:, 1:].tolist())
+        # train part
+        print('Hahow_Dataset all columns', df.columns)
+        print('length', df.shape[0])
+        df = df.to_numpy()
 
-        self.x_gender = torch.tensor(data_gender, dtype=torch.long)
-        self.x_vector = torch.tensor(data[:, 0], dtype=torch.float32)
-        # print('x_gender', len(self.x_gender))
-        # print('x_vector', len(self.x_vector))
+        x_gender = np.array(df[:, 0].tolist())
+        x_vector = np.array(df[:, 1].tolist())
+        y = np.array(df[:, 2].tolist())
 
-        self.gt = None
-        if self.mode == 'TTT':
-            # self.gt = np.array(gt, dtype=object)
-            # self.gt = torch.tensor(gt)
-            # self.gt = torch.tensor(gt, dtype=torch.int)
-            self.gt = torch.tensor(gt)
-            # self.gt = gt
-            # print('gt', len(self.gt))
-
-        if self.mode == 'Train' or self.mode == 'TTT':
-            self.y = torch.tensor(data[:, 1], dtype=torch.float32)
-            # print('y', len(self.y))
+        self.x_gender = torch.tensor(x_gender, dtype=torch.long)
+        self.x_vector = torch.tensor(x_vector, dtype=torch.float32)
+        self.y = torch.tensor(y, dtype=torch.float32)
         return
 
     def __getitem__(self, id: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        c_user_id = self.user_id[id]
         c_x_gender = self.x_gender[id]
         c_x_vector = self.x_vector[id]
-        c_y = []
-        c_gt = []
-
-        # ulimit -a
-        # sudo sh -c "ulimit -n 65535 && exec su $LOGNAME"
-
-        if self.mode == 'TTT':
-            c_gt = self.gt[id]
-            # print('c_gt', c_gt)
-            # print('c_gt', len(c_gt))
-
-        if self.mode == 'Train' or self.mode == 'TTT':
-            c_y = self.y[id]
-        return (c_x_gender, c_x_vector), c_y, c_gt
+        c_y = self.y[id]
+        c_courses_label = self.courses_label[id]
+        return c_user_id, (c_x_gender, c_x_vector, c_y), c_courses_label
 
     def __len__(self) -> int:
         return len(self.x_vector)

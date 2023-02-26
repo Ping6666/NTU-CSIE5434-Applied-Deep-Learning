@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 import numpy as np
 import pandas as pd
@@ -7,685 +7,563 @@ from tqdm import tqdm
 
 tqdm.pandas()
 
+from torch import topk
+
 from text2vec import SentenceModel, semantic_search
 
+MODES = ['train', 'val_seen', 'val_unseen', 'test_seen', 'test_unseen']
 BASE_DIR = './hahow/data/'
+TOPK = 91
 
-## global ##
+## Singleton: guarantee only one copy in the program ##
 
-group_subgroup_pair = {}
-group_list = np.array([[0] * 91] * 91, dtype=np.float64)  # dangerous move
+subgroup_id_pairs: Dict[str, int] = None
+sentence_model: SentenceModel = None
+subgroups_embeddings = None
+vector_table: Dict[str, np.array] = {}
 
-item_dict = {}
+## read_csv ##
 
 
-def print_list(l):
-    for j in range(91):
-        for k in range(91):
-            print(l[j][k], end=' ')
-        print()
+def read_csv_subgroups(name: str = 'subgroups.csv') -> None:
+    '''
+    store a Dict[str, int] as global variable:
+    (key, value) => (subgroup_name, subgroup_id).
+
+        Args:
+            name: `subgroups.csv`.
+    '''
+
+    global subgroup_id_pairs
+
+    if subgroup_id_pairs is not None:
+        return
+
+    pd_csv = pd.read_csv(
+        BASE_DIR + name,
+        dtype={
+            'subgroup_id': int,  # 1~91
+            'subgroup_name': str,
+        },
+        index_col=1,
+    )
+    subgroup_id_pairs = pd_csv.squeeze().to_dict()
     return
-
-
-def update_group_list(subgroups_dict):
-    global group_subgroup_pair
-    global group_list
-    _group_list = np.array([[0] * 91] * 91, dtype=np.float64)  # dangerous move
-
-    for i in range(len(subgroups_dict)):
-        groups = set()
-
-        for k, v in group_subgroup_pair.items():
-            if i in v:
-                groups.update(set(v))
-
-        if i in groups:
-            groups.remove(i)
-
-        for j in range(len(subgroups_dict)):
-            if j in groups:
-                _group_list[i][j] = 1
-            else:
-                _group_list[i][j] = 0
-
-    group_list = _group_list
-    return
-
-
-## read csv ##
-
-
-def read_csv_subgroups(name) -> Dict:
-    '''
-    name: 'subgroups.csv'
-    '''
-    subgroups = pd.read_csv(BASE_DIR + name,
-                            dtype={
-                                'subgroup_id': int,
-                                'subgroup_name': str,
-                            },
-                            index_col=1).squeeze().to_dict()
-    return subgroups
-
-
-## getter ##
-
-
-def get_model() -> SentenceModel:
-    model = SentenceModel('shibing624/text2vec-base-chinese')
-    return model
-
-
-def get_subgroup_id(subgroups_dict, c_subgroup):
-    c_subgroup_id = subgroups_dict.get(c_subgroup)
-    if c_subgroup_id != None:
-        return c_subgroup_id - 1
-    # raise KeyError(f"HI {c_subgroup}.")
-    return None
-
-
-## convert ##
-
-
-def convert_subgroup_vector_from_id(x):
-    x = str(x)
-
-    ## preprocess ##
-    subgroups = []
-    if ' ' in x:
-        subgroups = x.split(' ')
-    else:
-        subgroups = [x]
-
-    ## variable ##
-    rt_list = [0] * 91
-
-    for i in subgroups:
-        # TODO change check on nan
-        try:
-            rt_list[int(i) - 1] = 1
-        except:
-            continue
-
-    return np.array(rt_list)
-
-
-def convert_list(x: str) -> List:
-    '''
-    x: course_id
-    '''
-    try:
-        if ' ' in x:
-            return x.split(' ')
-        return [x]
-    except:
-        return []
-
-
-def convert_gender(x: str) -> int:
-    '''
-    x: gender
-    '''
-    g = 0
-    try:
-        if x == 'male':
-            g = 0
-        elif x == 'female':
-            g = 1
-        elif x == 'other':
-            g = 2
-    except:
-        g = -1
-
-    return g
-
-
-def convert_labels(x):
-    ## preprocess ##
-    group_pairs = []
-    if ',' in x:
-        group_pairs = x.split(',')
-    else:
-        group_pairs = [x]
-    return group_pairs
-
-
-def convert_labels_id(x: str, subgroups_dict):
-    groups = convert_labels(x)
-    rt_set = set()
-    for group in groups:
-        subgroup_id = get_subgroup_id(subgroups_dict, group)
-        if subgroup_id != None:
-            rt_set.add(subgroup_id + 1)
-    return rt_set
-
-
-def convert_subgroup_vector(x: str, subgroups_dict, split=True) -> List[int]:
-    global group_subgroup_pair
-
-    ## preprocess ##
-    group_pairs = convert_labels(x)
-
-    ## variable ##
-    rt_list = [0] * len(subgroups_dict)
-
-    for group_pair in group_pairs:
-        group_pair = group_pair.strip()
-        if group_pair == '':
-            continue
-
-        if split:
-            group, subgroup = group_pair.split('_')
-
-        else:
-            subgroup = group_pair
-
-        subgroup_id = get_subgroup_id(subgroups_dict, subgroup)
-        if subgroup_id != None:
-            if split:
-                c_subgroup = group_subgroup_pair.get(group)
-                if c_subgroup == None:
-                    group_subgroup_pair[group] = [subgroup_id]
-                    update_group_list(subgroups_dict)
-                elif subgroup_id not in c_subgroup:
-                    c_subgroup.append(subgroup_id)
-                    group_subgroup_pair[group] = c_subgroup
-                    update_group_list(subgroups_dict)
-
-            rt_list[subgroup_id] = 1
-
-    return np.array(rt_list, dtype=np.float64)
-
-
-def convert_text2vec_score(
-    x,
-    subgroups_num,
-    top_mul_change: List[int],
-    topk_num,
-    model_embedder,
-    subgroups_embeddings,
-    subgroups_list=None,
-    table=False,
-):
-    if table:
-        global item_dict
-
-    subgroups_scores = []
-    multiplier = 0
-
-    for i, items in enumerate(x):
-        items = str(items)
-        if i in top_mul_change:
-            _topk_num = 1
-            multiplier = 3
-        else:
-            _topk_num = topk_num
-            multiplier = 1
-
-        if ',' in items:
-            # 'groups', 'sub_groups'
-            items = items.split(',')
-        else:
-            items = [items]
-
-        for item in items:
-            item = str(item)
-            c_subgroups_score = None
-
-            c_item = None
-            if table:
-                c_item = item_dict.get(item)
-
-            if not table or c_item is None:
-                item_embedding = model_embedder.encode(item)
-                hits = semantic_search(item_embedding,
-                                       subgroups_embeddings,
-                                       top_k=_topk_num)[0]
-
-                corpus_ids, scores = [], []
-                for hit in hits:
-                    corpus_ids.append(hit['corpus_id'])
-                    scores.append(hit['score'])
-
-                # w = np.ones(_topk_num) / np.arange(1, _topk_num + 1)
-                # scores = np.multiply(np.array(scores), w).tolist()
-
-                c_subgroups_score = np.zeros(subgroups_num)
-                for c, s in zip(corpus_ids, scores):
-                    c_subgroups_score[c] = s
-
-                item_dict[item] = c_subgroups_score.copy()
-            else:
-                c_subgroups_score = c_item.copy()
-
-            c_subgroups_score = c_subgroups_score * multiplier
-            subgroups_scores.append(c_subgroups_score)
-
-    subgroups_scores = np.average(np.array(subgroups_scores), axis=0)
-
-    ## checker ##
-    if subgroups_list != None:
-        print(x['course_name'])
-        print(x['groups'])
-        print(x['sub_groups'])
-        subgroups_scores_argmax = np.argsort(-1 * subgroups_scores)
-        for i, id in enumerate(subgroups_scores_argmax):
-            if i == 10:
-                break
-            print(subgroups_list[id], subgroups_scores[id])
-        print()
-        # print(subgroups_scores.shape)
-        # print(subgroups_scores)
-        input()
-
-    return subgroups_scores
-
-
-def array_norm(a):
-    _a = np.array(a).copy()
-    _a_max = np.max(_a)
-    if _a_max != 0:
-        _a = _a / _a_max
-    return _a
-
-
-def convert_merge_stages(a, b):
-    '''
-    a: 'v_sub_groups'
-    b: 'v_text2vec'
-    '''
-    epsilon = 0.1
-
-    a = np.array(a) + epsilon
-    a = array_norm(a)
-
-    b = np.array(b)
-    c = np.multiply(a, b)
-
-    # c = array_norm(c)
-
-    return c
 
 
 ## get_dataframe ##
 
 
-def get_dataframe_train(name) -> pd.DataFrame:
+def get_dataframe_user_course(name: str) -> pd.DataFrame:
     '''
-    name: 'train.csv'
+        Args:
+            name: `train.csv`, `val_seen.csv`, `val_unseen.csv`, 
+            `test_seen.csv`, `test_unseen.csv`.
+
+        Returns:
+            pd.DataFrame: columns with raw data, `user_id`, `course_id`.
     '''
     df = pd.DataFrame(
-        pd.read_csv(BASE_DIR + name,
-                    dtype={
-                        'user_id': str,
-                        'course_id': str,
-                    }))
+        pd.read_csv(
+            BASE_DIR + name,
+            dtype={
+                'user_id': str,
+                'course_id': str,
+            },
+        ))
 
-    df['course_id'] = df[['course_id'
-                          ]].progress_apply(lambda x: convert_list(*x), axis=1)
+    def split_to_list(a: str) -> List[str]:
+        if ' ' in a:
+            return a.split(' ')
+        return [a]
+
+    df['course_id'].fillna(value='', inplace=True)
+    df['course_id'] = df[['course_id']].progress_apply(
+        lambda x: split_to_list(*x),
+        axis=1,
+    )
     # print(df)
+    return df
 
-    train_list = []
-    for _, c_row in df.iterrows():
+
+def get_dataframe_flatten_user_course(name: str) -> pd.DataFrame:
+    '''
+        Args:
+            name: `train.csv`, `val_seen.csv`, `val_unseen.csv`, 
+            `test_seen.csv`, `test_unseen.csv`.
+
+        Returns:
+            pd.DataFrame: columns with raw data (1 to 1), `user_id`, `course_id`.
+    '''
+    df = get_dataframe_user_course(name)
+
+    flatten_list = []
+    for _, c_row in tqdm(df.iterrows(), total=df.shape[0]):
         c_user = c_row['user_id']
-        c_courses = c_row['course_id']
+        c_courses: List[str] = c_row['course_id']
+
+        # for all course in current user
         for c_course in c_courses:
+            # deal with empty space scenario
+            _c_course = c_course.strip()
+            if _c_course == '':
+                continue
+
             c_train = {
                 'user_id': c_user,
-                'course_id': c_course,
+                'course_id': _c_course,
             }
-            train_list.append(c_train)
+            flatten_list.append(c_train)
 
-    df_flatten = pd.DataFrame(train_list)
+    df_flatten = pd.DataFrame(flatten_list)
     # print(df_flatten)
-
     return df_flatten
 
 
-def get_dataframe_group(name) -> pd.DataFrame:
+def get_dataframe_user_subgroup(name: str) -> pd.DataFrame:
     '''
-    name: 'val_seen_group.csv', 'val_unseen_group.csv'
+        Args:
+            name: `val_seen_group.csv`, `val_unseen_group.csv`, 
+            `test_seen_group.csv`, `test_unseen_group.csv`.
+
+        Returns:
+            pd.DataFrame: columns with raw data, `user_id`, `subgroup`.
     '''
     df = pd.DataFrame(
-        pd.read_csv(BASE_DIR + name, dtype={
-            'user_id': str,
-            'subgroup': str,
-        }))
-    df['l_subgroup'] = df[['subgroup'
-                           ]].progress_apply(lambda x: convert_list(*x),
-                                             axis=1)
-    df['v_subgroup'] = df[['subgroup']].progress_apply(
-        lambda x: convert_subgroup_vector_from_id(*x), axis=1)
+        pd.read_csv(
+            BASE_DIR + name,
+            dtype={
+                'user_id': str,
+                'subgroup': str,
+            },
+        ))
+    # print(df)
     return df
 
 
-def get_dataframe_users(name, subgroups_dict) -> pd.DataFrame:
+def get_dataframe_users(name: str = 'users.csv') -> pd.DataFrame:
     '''
-    name: 'users.csv'
+        Args:
+            name: `users.csv`.
+
+        Returns:
+            pd.DataFrame: columns with raw data, `user_id`, `gender`,
+            `occupation_titles`, `interests`, `recreation_names`.
     '''
     df = pd.DataFrame(
-        pd.read_csv(BASE_DIR + name,
-                    dtype={
-                        'user_id': str,
-                        'gender': str,
-                        'occupation_titles': str,
-                        'interests': str,
-                        'recreation_names': str,
-                    }))
+        pd.read_csv(
+            BASE_DIR + name,
+            dtype={
+                'user_id': str,
+                'gender': str,
+                'occupation_titles': str,
+                'interests': str,
+                'recreation_names': str,
+            },
+        ))
 
+    df['gender'].fillna(value='', inplace=True)
     df['occupation_titles'].fillna(value='', inplace=True)
     df['interests'].fillna(value='', inplace=True)
     df['recreation_names'].fillna(value='', inplace=True)
-
-    df['gender'] = df[['gender']].progress_apply(lambda x: convert_gender(*x),
-                                                 axis=1)
-    df['v_interests'] = df[['interests']].progress_apply(
-        lambda x: convert_subgroup_vector(*x, subgroups_dict), axis=1)
-    # print(df['v_interests'])
-
-    # model
-    model_embedder = get_model()
-
-    ## constant ##
-    subgroups_num = len(subgroups_dict)
-    subgroups_list = list(subgroups_dict.keys())
-
-    topk_num = 91
-
-    subgroups_embeddings = model_embedder.encode(subgroups_list)
-
-    df['v_interests_text2vec'] = df[[
-        'occupation_titles',
-        'interests',
-        'recreation_names',
-    ]].progress_apply(
-        lambda x: convert_text2vec_score(
-            x,
-            subgroups_num,
-            [1],
-            topk_num,
-            model_embedder,
-            subgroups_embeddings,
-            # subgroups_list,
-            None,
-            table=True,
-        ),
-        axis=1,
-    )
     # print(df)
-
     return df
 
 
-def get_dataframe_courses(name, subgroups_dict) -> pd.DataFrame:
+def get_dataframe_courses(name: str = 'courses.csv') -> pd.DataFrame:
     '''
-    name: 'courses.csv'
+        Args:
+            name: `courses.csv`.
+
+        Returns:
+            pd.DataFrame: columns with raw data, `course_id`, `course_name`,
+            `course_price`, `teacher_id`, `teacher_intro`, `groups`, 
+            `sub_groups`, `topics`, `course_published_at_local`, 
+            `description`, `will_learn`, `required_tools`, 
+            `recommended_background`, `target_group`.
     '''
     df = pd.DataFrame(
-        pd.read_csv(BASE_DIR + name,
-                    dtype={
-                        'course_id': str,
-                        'course_name': str,
-                        'course_price': int,
-                        'teacher_id': str,
-                        'teacher_intro': str,
-                        'groups': str,
-                        'sub_groups': str,
-                        'topics': str,
-                        'course_published_at_local': str,
-                        'description': str,
-                        'will_learn': str,
-                        'required_tools': str,
-                        'recommended_background': str,
-                        'target_group': str,
-                    }))
+        pd.read_csv(
+            BASE_DIR + name,
+            dtype={
+                'course_id': str,
+                'course_name': str,
+                'course_price': int,
+                'teacher_id': str,
+                'teacher_intro': str,
+                'groups': str,
+                'sub_groups': str,
+                'topics': str,
+                'course_published_at_local': str,
+                'description': str,
+                'will_learn': str,
+                'required_tools': str,
+                'recommended_background': str,
+                'target_group': str,
+            },
+        ))
 
     df['groups'].fillna(value='', inplace=True)
     df['sub_groups'].fillna(value='', inplace=True)
-
-    df['labels'] = df[['sub_groups']].progress_apply(
-        lambda x: convert_labels_id(*x, subgroups_dict), axis=1)
-
-    df['v_sub_groups'] = df[['sub_groups']].progress_apply(
-        lambda x: convert_subgroup_vector(*x, subgroups_dict, False), axis=1)
-    # print(df['v_sub_groups'])
-
+    # print(df)
     return df
 
 
-def get_dataframe_courses_sub_groups(name, df_courses) -> pd.DataFrame:
-    global group_list
+## getter ##
 
-    #
+
+def subgroup_id_to_idx(a: int) -> int:
+    return a - 1
+
+
+def subgroup_idx_to_id(a: int) -> int:
+    return a + 1
+
+
+def get_model() -> None:
+    global sentence_model
+    global subgroups_embeddings
+    global subgroup_id_pairs
+
+    if ((sentence_model is not None) and (subgroups_embeddings is not None)):
+        return
+
+    read_csv_subgroups()
+
+    # model_name_or_path = 'shibing624/text2vec-base-chinese'
+    sentence_model = SentenceModel()
+    subgroups_embeddings = sentence_model.encode(list(
+        subgroup_id_pairs.keys()))
+    return
+
+
+## convertor ##
+
+
+def convert_gender(a: str) -> int:
+    rt = -1
+    if a == 'male':
+        rt = 0
+    elif a == 'female':
+        rt = 1
+    elif a == 'other':
+        rt = 2
+    return rt
+
+
+def convert_subgroup_strs_to_ids(a: str) -> np.array[np.int8]:
+    global subgroup_id_pairs
+
+    rt = np.zeros(len(subgroup_id_pairs), dtype=np.int8)
+
+    # deal with sigle & multi item scenario
+    if ',' in a:
+        a = a.split(',')
+    else:
+        a = [a]
+
+    for item in a:
+        # deal with empty space scenario
+        item = item.strip()
+        if item == '':
+            continue
+
+        # sep. group & subgroup
+        group, subgroup = item.split('_')
+
+        subgroup_id = subgroup_id_pairs.get(subgroup)
+        if subgroup_id is not None:
+            subgroup_idx = subgroup_id_to_idx(subgroup_id)
+            rt[subgroup_idx] = 1
+    return rt
+
+
+def convert_single_text2vec(a: str, topk: int,
+                            multiply: float) -> np.array[np.float64]:
+    global sentence_model
+    global vector_table
+    global subgroup_id_pairs
+
+    a_vector: np.array = vector_table.get(a)
+    rt = None
+
+    # compute the vector from string (text)
+    if a_vector is not None:
+        rt = a_vector.copy()
+    else:
+        item_embedding = sentence_model.encode(a)
+        hits = semantic_search(item_embedding,
+                               subgroups_embeddings,
+                               top_k=topk)[0]
+
+        corpus_ids, scores = [], []
+        for hit in hits:
+            corpus_ids.append(hit['corpus_id'])
+            scores.append(hit['score'])
+
+        # w = np.ones(topk) / np.arange(1, topk + 1)
+        # scores = np.multiply(np.array(scores), w).tolist()
+
+        c_rt = np.zeros(len(subgroup_id_pairs), dtype=np.float64)
+        for c, s in zip(corpus_ids, scores):
+            c_rt[c] = s
+
+        a_vector[a] = c_rt.copy()
+        rt = c_rt.copy()
+
+    # do multiply
+    rt = np.multiply(rt, multiply)
+    return rt
+
+
+def convert_multiple_text2vec(a: List[str], topk: List[int],
+                              multiply: List[float]) -> np.array[np.float64]:
     '''
-    col: 'user_id', 'course_id'
+    do convert_single_text2vec that share same `topk` & `multiply`.
     '''
-    df_train = get_dataframe_train(name)
 
-    df_train = pd.merge(df_train, df_courses, on='course_id')
-    df_train = df_train[['user_id', 'v_sub_groups']].copy()
+    assert (((len(a) == len(topk)) and (len(a) == len(multiply))),
+            'convert_multiple_text2vec | wrong length!!!')
 
-    train_dict = {}
-    for i, c_row in df_train.iterrows():
-        c_user = c_row['user_id']
-        c_v_sub_groups = c_row['v_sub_groups'].copy()
-        c_v = train_dict.get(c_user)
-
-        if c_v is None:
-            c_v = c_v_sub_groups
+    _text2vec = []
+    for a_i, _topk, _multiply in zip(a, topk, multiply):
+        # convert string to List[string]
+        if ',' in a_i:
+            a_i = a_i.split(',')
         else:
-            c_v_sub_groups_mul_mean = np.mean(
-                np.multiply(
-                    c_v_sub_groups.reshape(1, -1),
-                    np.array(group_list),
-                ),
-                axis=1,
-            ).reshape(-1)
+            a_i = [a_i]
 
-            c_v += c_v_sub_groups + 0.2 * c_v_sub_groups_mul_mean
-        train_dict[c_user] = c_v
+        # compute convert_single_text2vec
+        for a_i_j in a_i:
+            _text2vec.append(convert_single_text2vec(a_i_j, _topk, _multiply))
 
-    _df_train = pd.DataFrame(list(train_dict.items()),
-                             columns=['user_id', 'v_sub_groups'])
-    # print(_df_train)
-
-    return _df_train
+    text2vec = np.average(np.array(_text2vec), axis=0).copy()
+    return text2vec
 
 
-def get_dataframe_courses_text2vec(name, df_courses) -> pd.DataFrame:
-    # model
-    model_embedder = get_model()
+def convert_union_subgroups_id(a: str) -> set:
+    global subgroup_id_pairs
 
-    ## constant ##
-    subgroups_dict = read_csv_subgroups('subgroups.csv')
-    subgroups_num = len(subgroups_dict)
-    subgroups_list = list(subgroups_dict.keys())
+    # deal with sigle & multi item scenario
+    if ',' in a:
+        a = a.split(',')
+    else:
+        a = [a]
 
-    topk_num = 91
+    # for all subgroups
+    rt = set()
+    for subgroup in a:
+        # deal with empty space scenario
+        subgroup = subgroup.strip()
+        if subgroup == '':
+            continue
 
-    subgroups_embeddings = model_embedder.encode(subgroups_list)
+        subgroup_id = subgroup_id_pairs.get(subgroup)
+        rt.add(subgroup_id)
+    return rt
 
-    # dataframe
+
+def convert_predict_to_int_list(predicts) -> List[int]:
+    c_group_lists = []
+    for predict in predicts:
+        c_group_list = (topk(predict, TOPK).indices + 1).tolist()
+        c_group_lists.append(c_group_list)
+    return c_group_lists
+
+
+## manipulate ##
+
+
+def manipulate_users(df: pd.DataFrame) -> pd.DataFrame:
     '''
-    col: 'course_id', 'course_name', 'course_price', 'teacher_id',
-         'teacher_intro', 'groups', 'sub_groups', 'topics', 'course_published_at_local',
-         'description', 'will_learn', 'required_tools', 'recommended_background', 'target_group',
-         'v_sub_groups', 'labels'
-    '''
+        Args:
+            df: see get_dataframe_users.
 
-    df_courses['v_text2vec'] = df_courses[[
-        'course_name',
-        'teacher_intro',
-        'groups',
-        'sub_groups',
-        'topics',
-        'description',
-        'will_learn',
-        'required_tools',
-        'recommended_background',
-        'target_group',
-    ]].progress_apply(
-        lambda x: convert_text2vec_score(
-            x,
-            subgroups_num,
-            [0, 2, 3],
-            topk_num,
-            model_embedder,
-            subgroups_embeddings,
-            # subgroups_list,
-            None,
-            table=True,
-        ),
+        Returns:
+            pd.DataFrame: columns with post data, `users_gender`, `users_interests`
+            `users_text2vec`.
+    '''
+    df['users_gender'] = df[['gender']].progress_apply(
+        lambda x: convert_gender(*x),
         axis=1,
     )
-    # print(df_courses)
-
-    #
-    '''
-    col: 'user_id', 'course_id'
-    '''
-    df_train = get_dataframe_train(name)
-
-    df_train = pd.merge(df_train, df_courses, on='course_id')
-    df_train = df_train[['user_id', 'v_text2vec', 'labels']].copy()
-
-    train_dict = {}
-    for _, c_row in df_train.iterrows():
-        c_user = c_row['user_id']
-        c_labels: set = c_row['labels']
-        c_v_sub_groups = c_row['v_text2vec'].copy()
-
-        c_lv = train_dict.get(c_user)
-        if c_lv is None:
-            c_lv = {}
-            c_lv['v_text2vec'] = c_v_sub_groups
-            c_lv['labels'] = c_labels
-        else:
-            c_lv['v_text2vec'] += c_v_sub_groups
-            c_lv['labels'].update(c_labels)
-
-        train_dict[c_user] = c_lv
-
-    _df_train = pd.DataFrame.from_dict(train_dict,
-                                       orient="index").reset_index()
-    _df_train.columns = ['user_id', 'v_text2vec', 'labels']
-
-    def to_good_list(x):
-        _x = list(x)
-        # print(len(_x))
-        if len(_x) != 91:
-            _x_append = [0] * (91 - len(_x))
-            _x += _x_append
-        rt_x = np.array(_x, dtype=np.int8)
-        # print(type(rt_x))
-        # print(rt_x)
-        # input()
-        return rt_x
-
-    _df_train['labels'] = _df_train['labels'].progress_apply(
-        lambda x: to_good_list(x))
-
-    # _df_train = pd.DataFrame.from_dict(
-    #     train_dict, columns=['user_id', 'v_text2vec', 'labels'])
-    print(_df_train)
-
-    return _df_train
-
-
-def get_dataframe_test(name) -> pd.DataFrame:
-    '''
-    name: 'test_seen.csv'
-    '''
-    df = pd.DataFrame(
-        pd.read_csv(BASE_DIR + name,
-                    dtype={
-                        'user_id': str,
-                        'course_id': str,
-                    }))
-
-    # df['course_id'] = df[['course_id']].progress_apply(lambda x: get_list(*x), axis=1)
-
+    df['users_interests'] = df[['interests']].progress_apply(
+        lambda x: convert_subgroup_strs_to_ids(*x),
+        axis=1,
+    )
+    df['users_text2vec'] = df[[
+        'occupation_titles', 'interests', 'recreation_names'
+    ]].progress_apply(
+        lambda x: convert_multiple_text2vec(x, [10, 1, 2], [1, 5, 1]),
+        axis=1,
+    )
     return df
+
+
+def manipulate_courses(df: pd.DataFrame) -> pd.DataFrame:
+    '''
+        Args:
+            df: see get_dataframe_courses.
+
+        Returns:
+            pd.DataFrame: columns with post data, `courses_text2vec`, `courses_label`.
+    '''
+    df['courses_text2vec'] = df[[
+        'course_name', 'teacher_intro', 'groups', 'sub_groups', 'topics',
+        'description', 'will_learn', 'required_tools',
+        'recommended_background', 'target_group'
+    ]].progress_apply(
+        lambda x: convert_multiple_text2vec(x, [
+            1, 91, 1, 1, 91, 91, 91, 91, 91, 91
+        ], [5, 1, 5, 5, 1, 1, 1, 1, 1, 1]),
+        axis=1,
+    )
+    # TODO
+    df['courses_label'] = df[['sub_groups']].progress_apply(
+        lambda x: convert_union_subgroups_id(*x),
+        axis=1,
+    )
+    return df
+
+
+def manipulate_merge_flatten(df: pd.DataFrame) -> pd.DataFrame:
+    '''
+        Args:
+            df: from get_dataframe_flatten_user_course & manipulate_courses
+
+                - get_dataframe_flatten_user_course
+                    - user_id, course_id
+                - manipulate_courses
+                    - course_id, course_name, course_price, teacher_id, 
+                    - teacher_intro, groups, sub_groups, topics, 
+                    - course_published_at_local, description, will_learn, 
+                    - required_tools, recommended_background, target_group
+                    - courses_text2vec, courses_label
+
+        Returns:
+            pd.DataFrame: columns with post data, ``.
+    '''
+
+    merge_dict = {}
+    for _, c_row in tqdm(df.iterrows(), total=df.shape[0]):
+        c_user_id = c_row['user_id']
+        c_text2vec = c_row['courses_text2vec'].copy()
+        c_labels: set = c_row['courses_label']
+
+        c_lv = merge_dict.get(c_user_id)
+        if c_lv is None:
+            # seq. is VERY important
+            c_lv = {}
+            c_lv['courses_text2vec'] = c_text2vec
+            c_lv['courses_label'] = c_labels
+        else:
+            c_lv['courses_text2vec'] += c_text2vec
+            c_lv['courses_label'].update(c_labels)
+
+        merge_dict[c_user_id] = c_lv
+
+    df_merge = pd.DataFrame.from_dict(merge_dict, orient="index")
+    df_merge.reset_index()
+    df_merge.columns = ['user_id', 'courses_text2vec', 'courses_label']
+
+    def set_pad_to_list(a: set) -> np.array[np.int8]:
+        _a = list(a)
+        if len(_a) != 91:
+            _a += [0] * (91 - len(_a))
+        rt = np.array(_a, dtype=np.int8)
+        return rt
+
+    df_merge['courses_label'] = df_merge['courses_label'].progress_apply(
+        lambda x: set_pad_to_list(x))
+    # print(df_merge)
+    return df_merge
 
 
 ## workhouse ##
 
 
-def predataset_workhouse():
-
-    ## constant ##
-    subgroups_dict = read_csv_subgroups('subgroups.csv')
-
-    ## dataframe ##
-
-    # get_users
+def preprocess_workhouse() -> Tuple(pd.DataFrame, pd.DataFrame):
     '''
-    col: 'user_id', 'gender', 'occupation_titles', 'interests', 'recreation_names',
-         'v_interests'
-    '''
-    print('******Users******')
-    df_users = get_dataframe_users('users.csv', subgroups_dict)
-    print(df_users)
+    get all redundant data from preprocess stage.
 
-    # get_courses
+        Returns:
+            pd.DataFrame: df_users
+            pd.DataFrame: df_courses
     '''
-    col: 'course_id', 'course_name', 'course_price', 'teacher_id',
-         'teacher_intro', 'groups', 'sub_groups', 'topics', 'course_published_at_local',
-         'description', 'will_learn', 'required_tools', 'recommended_background', 'target_group',
-         'v_sub_groups'
-    '''
-    print('******Courses******')
-    df_courses = get_dataframe_courses('courses.csv', subgroups_dict)
-    print(df_courses)
+    df_users = get_dataframe_users()
+    df_users = manipulate_users(df_users)
+    print('df_users.columns', df_users.columns)
 
+    df_courses = get_dataframe_courses()
+    df_courses = manipulate_courses(df_courses)
+    print('df_courses.columns', df_courses.columns)
     return df_users, df_courses
 
 
-def dataset_workhouse(df_users, df_courses, mode='Train'):
-    label = []
+def _dataset_workhouse(name, df_preprocess) -> Tuple[List, pd.DataFrame, List]:
+    '''
+        Args:
+            name: see get_dataframe_flatten_user_course
+            df_preprocess: see preprocess_workhouse
 
-    if mode == 'Train':
-        ## course get text2vec for each user ##
-        print('******Courses | text2vec******')
-        df_courses_text2vec = get_dataframe_courses_text2vec(
-            'train.csv', df_courses)
-        print(df_courses_text2vec)
+        Returns:
+            user_id: List for checking the sequence of dataset
+            df: pd.DataFrame the train part (input & label)
+            courses_label: List the ground_truth
+    '''
+    df_users, df_courses = df_preprocess
 
-        df = pd.merge(df_courses_text2vec, df_users, on='user_id')
-        label = df['labels'].to_list()
+    # flatten dataframe
+    df = get_dataframe_flatten_user_course(name)
+    df_flatten = pd.merge(df, df_courses, on='course_id')
 
-        df = df[['gender', 'v_interests_text2vec', 'v_text2vec']]
-        # print(label)
-        print(df)
+    # unflatten dataframe
+    df_man_merge = manipulate_merge_flatten(df_flatten)
+    df_final = pd.merge(df_man_merge, df_users, on='user_id')
 
-    elif mode == 'Eval_Seen':
-        '''
-        col: 'user_id', 'subgroup', 'l_subgroup', 'v_subgroup'
-        '''
-        df_group = get_dataframe_group('val_seen_group.csv')
+    # drop some other features
+    df_final = df_final[[
+        'user_id', 'users_gender', 'users_text2vec', 'courses_text2vec',
+        'courses_label'
+    ]]
 
-        df = pd.merge(df_group, df_users, on='user_id')
-        df = df[['gender', 'v_interests_text2vec', 'v_subgroup']]
-    elif mode == 'Eval_UnSeen':
-        '''
-        col: 'user_id', 'subgroup', 'l_subgroup', 'v_subgroup'
-        '''
-        df_group = get_dataframe_group('val_unseen_group.csv')
+    # sequence
+    user_id = df['user_id'].to_list()
+    # ground_truth
+    courses_label = df['courses_label'].to_list()
+    # train part (input & label)
+    df = df[['users_gender', 'users_text2vec', 'courses_text2vec']]
+    return user_id, df, courses_label
 
-        df = pd.merge(df_group, df_users, on='user_id')
-        df = df[['gender', 'v_interests_text2vec', 'v_subgroup']]
-    elif mode == 'Test_Seen':
-        df_test = get_dataframe_test('test_seen.csv')
-        df = pd.merge(df_test, df_users, on='user_id')
-        df = df[['gender', 'v_interests_text2vec']]
-    elif mode == 'Test_UnSeen':
-        df_test = get_dataframe_test('test_unseen.csv')
-        df = pd.merge(df_test, df_users, on='user_id')
-        df = df[['gender', 'v_interests_text2vec']]
-    else:
-        raise KeyError
 
-    return df, label
+def dataset_workhouse(df_preprocess, mode: str):
+    '''
+        Args:
+            df_preprocess: (df_users, df_courses)
+                - df_users: see get_dataframe_users
+                - df_courses: see get_dataframe_courses
+
+        Returns:
+            see _dataset_workhouse
+    '''
+    assert mode in MODES, 'dataset_workhouse | wrong mode!!!'
+
+    name = ''
+    if mode == MODES[0]:
+        name = 'train.csv'
+    elif mode == MODES[1]:
+        name = 'val_seen.csv'
+    elif mode == MODES[2]:
+        name = 'val_unseen.csv'
+    elif mode == MODES[3]:
+        name = 'test_seen.csv'
+    elif mode == MODES[4]:
+        name = 'test_unseen.csv'
+
+    return _dataset_workhouse(name, df_preprocess)
+
+
+## main ##
 
 
 def main():
