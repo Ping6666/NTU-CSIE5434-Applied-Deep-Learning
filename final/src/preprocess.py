@@ -389,11 +389,11 @@ def convert_multiple_text2vec(a: List[str], topk: List[int],
             a_i = [a_i]
 
         # compute convert_single_text2vec
+        c_text2vec = []
         for a_i_j in a_i:
-            _text2vec.append(convert_single_text2vec(a_i_j, _topk, _multiply))
+            c_text2vec.append(convert_single_text2vec(a_i_j, _topk, _multiply))
+        _text2vec.append(np.average(np.array(c_text2vec), axis=0).copy())
 
-    # TODO
-    # option: sum
     text2vec = np.average(np.array(_text2vec), axis=0).copy()
     return text2vec
 
@@ -445,8 +445,8 @@ def manipulate_users(df: pd.DataFrame) -> pd.DataFrame:
     ]].progress_apply(
         lambda x: convert_multiple_text2vec(
             x,
-            [2, 1, 2],
-            [1, 10, 1],
+            [91, 1, 91],
+            [1, 25, 1],
         ),
         axis=1,
     )
@@ -473,14 +473,27 @@ def manipulate_courses(df: pd.DataFrame) -> Tuple[pd.DataFrame, LabelEncoder]:
     ]].progress_apply(
         lambda x: convert_multiple_text2vec(
             x,
-            [2, 5, 1, 1, 2, 20, 5, 5, 5, 5],
-            [1, 1, 1, 100, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 1, 91, 1, 1, 1, 1],
+            [1, 1, 1, 25, 1, 1, 1, 1, 1, 1],
+        ),
+        axis=1,
+    )
+
+    df['courses_metrix'] = df[[
+        'course_name', 'teacher_intro', 'groups', 'sub_groups', 'topics',
+        'description', 'will_learn', 'required_tools',
+        'recommended_background', 'target_group'
+    ]].progress_apply(
+        lambda x: convert_multiple_text2vec(
+            x,
+            [1, 1, 1, 1, 1, 91, 1, 1, 1, 1],
+            [10, 0.5, 1, 1, 1, 0.5, 0.5, 0.5, 0.5, 0.5],
         ),
         axis=1,
     )
 
     if subgroup_course_metrix is None:
-        subgroup_course_metrix = np.array(df['courses_text2vec'].tolist())
+        subgroup_course_metrix = np.array(df['courses_metrix'].tolist())
         # print(subgroup_course_metrix.shape)  # (728, 91)
 
     return df, course_id_labelencoder
@@ -672,13 +685,18 @@ def dataset_workhouse(df_preprocess, mode: str):
 ## inference ##
 
 
-def predict_course_search(predict: np.array) -> List[int]:
+def predict_course_search(predict: Tensor) -> List[int]:
     global subgroup_course_metrix
+
+    _, idx = topk(predict, 45, largest=False)
+    predict_scatter = predict.scatter(-1, idx, value=0.01)
+
+    _predict = predict_scatter.detach().cpu().numpy()
 
     # print(predict.shape)  # (91,)
     # print(subgroup_course_metrix.shape)  # (728, 91)
 
-    _predict = predict.reshape(-1, 1)
+    _predict = _predict.reshape(-1, 1)
     _rt = np.matmul(subgroup_course_metrix, _predict)
     rt = _rt.reshape(-1).copy()
 
@@ -695,10 +713,9 @@ def inference_prediction(
         c_topic_lists.append(c_topic_list)
 
         # course
-        _predict = predict.detach().cpu().numpy()
-        course_predict = predict_course_search(_predict)
+        course_predict = predict_course_search(predict)
         c_course_list = [
-            idx + 1 for idx in np.argsort(-np.array(course_predict))
+            idx for idx in np.argsort(-np.array(course_predict))
         ]
         c_course_lists.append(c_course_list)
     return c_topic_lists, c_course_lists
